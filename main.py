@@ -16,6 +16,7 @@ from review import (
     DEFAULT_CHAT_URL,
     MODEL_NAME,
     build_review_payload,
+    extract_keywords,
     parse_review_response,
     post_json,
     review_doc,
@@ -109,6 +110,17 @@ def debug_review(
         "parsed": parsed,
         "error": error,
     }
+
+
+@app.get("/extract_keywords")
+def extract_keywords_api(
+    query: str = Query(..., min_length=1),
+    max_keywords: int = Query(10, ge=1, le=10),
+    chat_url: str = Query(DEFAULT_CHAT_URL),
+) -> Dict[str, Any]:
+    result = extract_keywords(query, chat_url, max_keywords=max_keywords)
+    _log(f"keywords: {result.get('keywords', [])}")
+    return result
 
 
 @app.get("/stream_research")

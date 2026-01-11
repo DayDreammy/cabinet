@@ -89,6 +89,17 @@ def build_review_prompt(doc: Dict[str, Any], query: str) -> str:
     )
 
 
+def build_keyword_prompt(query: str, max_keywords: int) -> str:
+    return (
+        "You are a research assistant. Extract core search keywords from the question.\n"
+        f"- Return 3-5 keywords if possible, up to {max_keywords} max.\n"
+        "- Prefer concrete terms and key concepts; avoid filler words.\n"
+        "- Output JSON only.\n\n"
+        f"Question: {query}\n\n"
+        'Return JSON only: {"keywords": ["...", "..."]}'
+    )
+
+
 def build_review_payload(
     doc: Dict[str, Any], query: str, model: str = MODEL_NAME
 ) -> Dict[str, Any]:
@@ -102,6 +113,25 @@ def build_review_payload(
             {
                 "role": "system",
                 "content": "You are a reviewer. Use only exact quotes from the article.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+    }
+
+
+def build_keyword_payload(
+    query: str, max_keywords: int, model: str = MODEL_NAME
+) -> Dict[str, Any]:
+    prompt = build_keyword_prompt(query, max_keywords)
+    return {
+        "model": model,
+        "agentic": False,
+        "temperature": 0.2,
+        "max_tokens": 256,
+        "messages": [
+            {
+                "role": "system",
+                "content": "Extract search keywords and return JSON only.",
             },
             {"role": "user", "content": prompt},
         ],
@@ -128,6 +158,34 @@ def extract_json(text: str) -> Dict[str, Any]:
         return json.loads(match.group(0))
     except json.JSONDecodeError:
         return {}
+
+
+def parse_keywords_response(
+    response: Dict[str, Any], max_keywords: int
+) -> Dict[str, Any]:
+    content_text = extract_message_content(response)
+    parsed = extract_json(content_text)
+    keywords = []
+    if isinstance(parsed, dict):
+        raw_list = parsed.get("keywords") or parsed.get("key_terms") or []
+        if isinstance(raw_list, list):
+            keywords = [str(item).strip() for item in raw_list if str(item).strip()]
+
+    seen = set()
+    deduped = []
+    for item in keywords:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+        if len(deduped) >= max_keywords:
+            break
+
+    return {
+        "keywords": deduped,
+        "raw_text": content_text,
+        "parsed": parsed,
+    }
 
 
 def _find_with_map(content: str, quote: str, trans: Dict[int, str]) -> int:
@@ -244,5 +302,25 @@ def review_doc(doc: Dict[str, Any], query: str, chat_url: str) -> Dict[str, Any]
         "quote_start": parsed.get("quote_start", 0),
         "quote_end": parsed.get("quote_end", 0),
         "score": parsed.get("score", 0.0),
+        "error": error,
+    }
+
+
+def extract_keywords(query: str, chat_url: str, max_keywords: int = 10) -> Dict[str, Any]:
+    payload = build_keyword_payload(query, max_keywords, model=MODEL_NAME)
+    error = ""
+    try:
+        response = post_json(chat_url, payload)
+    except Exception as exc:
+        error = str(exc)
+        response = {}
+
+    parsed = parse_keywords_response(response, max_keywords=max_keywords)
+    return {
+        "query": query,
+        "keywords": parsed.get("keywords", []),
+        "raw_text": parsed.get("raw_text", ""),
+        "parsed": parsed.get("parsed", {}),
+        "payload": payload,
         "error": error,
     }
