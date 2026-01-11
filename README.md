@@ -1,43 +1,47 @@
-# Cabinet MVP (Golden Pipeline)
+# Cabinet
 
-A minimal, transparent research assistant that surfaces raw quotes from a private corpus.
-It prioritizes recall via brute-force search and accuracy via LLM review, then returns
-quote-centric evidence with source links.
+一个以私域信源为基础的“透明研究导览助手”。
+它不替你下结论，而是带你找到原作、标出关键证据，让你在完整语境里做判断。
 
-## Quick start
-1) Start the backend (UI expects port 8002):
+## 愿景
+
+在信息过载与AI幻觉的时代，为用户提供一个**绝对可信**、**过程透明**、**还原语境**的思考代理人。它不生产内容，它用你信任的智慧来审视你的难题。
+
+## 解决的问题
+- 传统搜索：关键词匹配不足，召回率低，容易漏掉关键文章。
+- 碎片化 RAG：上下文断裂，逻辑链条丢失。
+- Chatbot：黑盒生成，结论难以信任。
+
+## 产品隐喻
+不是“做饭的厨师”，而是“博物馆导览员”：
+- 给你 5-10 篇必读，而不是海量链接。
+- 关键内容必须来自原文引用，且可跳转溯源。
+
+## MVP 核心体验
+- **Project Based**：输入一个问题，生成一个研究项目并可持久化。
+- **透明工作流**：展示检索、筛选、阅读过程。
+- **Split View**：左侧证据卡片，右侧原文全文，点击联动高亮。
+- **Quote-Centric**：只输出原文引用与理由，杜绝改写。
+- **可复制的“证据回答”**：一键生成适合发布的纯文本答案。
+
+## 如何体验
+1) 启动服务（UI 默认端口 8002）：
 
 ```
 python -m uvicorn main:app --host 127.0.0.1 --port 8002
 ```
 
-2) Open the UI:
+2) 打开界面：
 
 ```
 http://127.0.0.1:8002/
 ```
 
-## Data
-- Input dataset: `data/ps_2026-01-07.json`
-- Fields: `id`, `title`, `question`, `content`, `url`, `publishedAt`, `updatedAt`, `proofread`
+## 致谢
+当前数据来自 sooon.ai，源自知乎用户 https://www.zhihu.com/people/kvxjr369f 的开放版权与无私奉献，特此致谢。
 
-## Core endpoints
-- `GET /stream_research?query=...`
-  - SSE stream: logs, candidates, per-term search traces, merge summary, and final results
-  - Final payload includes `text_report` for copy/paste usage
-- `GET /extract_keywords?query=...`
-  - LLM-based concept expansion for long questions
-- `GET /doc/{id}`
-  - Returns full document content for preview/highlight
-- `GET /debug_review?doc_id=...&query=...`
-  - LLM input/output for review debugging
+## 开源协议
+本项目采用最宽松的开源协议。
 
-## LLM integration
-- Uses local OpenAI-compatible endpoint: `http://127.0.0.1:8000/v1/chat/completions`
-- Review model: `GLM-4-Flash`
-- Keyword extraction model: `glm-4.7` with `thinking=disabled`
-
-## Tests
-```
-python scripts/test_quote_match.py
-```
+## 了解更多
+产品定义与理念：`docs/product-definition-cabinet.md`
