@@ -62,6 +62,32 @@ def _log(message: str) -> None:
     LOGGER.info(message)
 
 
+def _merge_candidates(
+    candidate_lists: List[Dict[str, Any]],
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+    for candidates in candidate_lists:
+        for doc in candidates:
+            doc_id = str(doc.get("id", ""))
+            if not doc_id:
+                continue
+            score = float(doc.get("search_score", 0))
+            if doc_id not in merged:
+                item = dict(doc)
+                item["search_score"] = score
+                item["search_hits"] = 1
+                merged[doc_id] = item
+            else:
+                merged_item = merged[doc_id]
+                merged_item["search_score"] += score
+                merged_item["search_hits"] = merged_item.get("search_hits", 1) + 1
+
+    merged_list = list(merged.values())
+    merged_list.sort(key=lambda item: item.get("search_score", 0), reverse=True)
+    return merged_list[:top_k]
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(os.path.join(PUBLIC_DIR, "index.html"))
@@ -120,6 +146,11 @@ def extract_keywords_api(
 ) -> Dict[str, Any]:
     result = extract_keywords(query, chat_url, max_keywords=max_keywords)
     _log(f"keywords: {result.get('keywords', [])}")
+    _log(f"keywords payload: {json.dumps(result.get('payload', {}), ensure_ascii=False)}")
+    _log(f"keywords raw_text: {result.get('raw_text', '')}")
+    _log(f"keywords parsed: {json.dumps(result.get('parsed', {}), ensure_ascii=False)}")
+    if result.get("error"):
+        _log(f"keywords error: {result.get('error')}")
     return result
 
 
@@ -151,7 +182,56 @@ def stream_research(
         _log(msg)
         yield _format_sse("log", msg)
 
-        candidates = search_db(DOCS, query, top_k=top_k)
+        search_terms = [query]
+        if len(query) >= 20 or len(tokens) >= 6:
+            msg = "long query detected, extracting keywords"
+            _log(msg)
+            yield _format_sse("log", msg)
+            keyword_result = extract_keywords(query, chat_url, max_keywords=10)
+            keywords = keyword_result.get("keywords", [])
+            if keywords:
+                search_terms = keywords
+            msg = f"keywords: {keywords}"
+            _log(msg)
+            yield _format_sse("log", msg)
+            _log(
+                f"keywords payload: {json.dumps(keyword_result.get('payload', {}), ensure_ascii=False)}"
+            )
+            _log(f"keywords raw_text: {keyword_result.get('raw_text', '')}")
+            _log(
+                f"keywords parsed: {json.dumps(keyword_result.get('parsed', {}), ensure_ascii=False)}"
+            )
+            if keyword_result.get("error"):
+                _log(f"keywords error: {keyword_result.get('error')}")
+
+        search_terms = list(dict.fromkeys(search_terms))
+        msg = f"search terms ({len(search_terms)}): {search_terms}"
+        _log(msg)
+        yield _format_sse("log", msg)
+
+        candidate_lists = []
+        for term in search_terms:
+            term_candidates = search_db(DOCS, term, top_k=top_k)
+            candidate_lists.append(term_candidates)
+            preview = ", ".join(
+                f"{idx + 1}.{item.get('title', '(untitled)')}[{item.get('search_score', 0):.1f}]"
+                for idx, item in enumerate(term_candidates[:3])
+            )
+            _log(
+                f"term search: {term} -> {len(term_candidates)} candidates | top: {preview}"
+            )
+
+        candidates = (
+            candidate_lists[0]
+            if len(candidate_lists) == 1
+            else _merge_candidates(candidate_lists, top_k=top_k)
+        )
+        if len(candidate_lists) > 1:
+            total = sum(len(items) for items in candidate_lists)
+            _log(
+                "merge summary: "
+                f"terms={len(search_terms)} total={total} unique={len(candidates)}"
+            )
         msg = f"search done: {len(candidates)} candidates, start review"
         _log(msg)
         yield _format_sse("log", msg)
@@ -162,6 +242,7 @@ def stream_research(
                     "id": str(item.get("id", "")),
                     "title": item.get("title", ""),
                     "search_score": round(float(item.get("search_score", 0)), 2),
+                    "search_hits": item.get("search_hits", 1),
                 }
                 for item in candidates
             ]
