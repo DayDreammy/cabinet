@@ -96,6 +96,10 @@ def _build_text_report(items: List[Dict[str, Any]]) -> str:
             for row in rows:
                 title = row.get("title", "")
                 quote = row.get("quote", "")
+                if quote:
+                    quote = "\n".join(
+                        line.strip() for line in quote.splitlines() if line.strip()
+                    )
                 url = row.get("url", "")
                 lines.append(f"# {title}")
                 lines.append(quote)
