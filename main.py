@@ -62,10 +62,7 @@ def _log(message: str) -> None:
     LOGGER.info(message)
 
 
-def _merge_candidates(
-    candidate_lists: List[Dict[str, Any]],
-    top_k: int,
-) -> List[Dict[str, Any]]:
+def _merge_candidates(candidate_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged: Dict[str, Dict[str, Any]] = {}
     for candidates in candidate_lists:
         for doc in candidates:
@@ -85,7 +82,7 @@ def _merge_candidates(
 
     merged_list = list(merged.values())
     merged_list.sort(key=lambda item: item.get("search_score", 0), reverse=True)
-    return merged_list[:top_k]
+    return merged_list
 
 
 @app.get("/")
@@ -149,6 +146,18 @@ def extract_keywords_api(
     _log(f"keywords payload: {json.dumps(result.get('payload', {}), ensure_ascii=False)}")
     _log(f"keywords raw_text: {result.get('raw_text', '')}")
     _log(f"keywords parsed: {json.dumps(result.get('parsed', {}), ensure_ascii=False)}")
+    _log(f"keywords model: {result.get('keyword_model', '')}")
+    _log(
+        "keywords response primary: "
+        f"{json.dumps(result.get('response_primary', {}), ensure_ascii=False)}"
+    )
+    if result.get("response_fallback"):
+        _log(
+            "keywords response fallback: "
+            f"{json.dumps(result.get('response_fallback', {}), ensure_ascii=False)}"
+        )
+    if result.get("response"):
+        _log(f"keywords response: {json.dumps(result.get('response', {}), ensure_ascii=False)}")
     if result.get("error"):
         _log(f"keywords error: {result.get('error')}")
     return result
@@ -158,8 +167,8 @@ def extract_keywords_api(
 def stream_research(
     query: str = Query(..., min_length=1),
     top_k: int = Query(20, ge=1, le=50),
-    max_workers: int = Query(5, ge=1, le=20),
-    score_threshold: float = Query(7.0, ge=0.0, le=10.0),
+    max_workers: int = Query(100, ge=1, le=100),
+    score_threshold: float = Query(8.0, ge=0.0, le=10.0),
     chat_url: str = Query(DEFAULT_CHAT_URL),
 ) -> StreamingResponse:
     def event_generator() -> Iterable[str]:
@@ -201,6 +210,21 @@ def stream_research(
             _log(
                 f"keywords parsed: {json.dumps(keyword_result.get('parsed', {}), ensure_ascii=False)}"
             )
+            _log(f"keywords model: {keyword_result.get('keyword_model', '')}")
+            _log(
+                "keywords response primary: "
+                f"{json.dumps(keyword_result.get('response_primary', {}), ensure_ascii=False)}"
+            )
+            if keyword_result.get("response_fallback"):
+                _log(
+                    "keywords response fallback: "
+                    f"{json.dumps(keyword_result.get('response_fallback', {}), ensure_ascii=False)}"
+                )
+            if keyword_result.get("response"):
+                _log(
+                    "keywords response: "
+                    f"{json.dumps(keyword_result.get('response', {}), ensure_ascii=False)}"
+                )
             if keyword_result.get("error"):
                 _log(f"keywords error: {keyword_result.get('error')}")
 
@@ -240,7 +264,7 @@ def stream_research(
         candidates = (
             candidate_lists[0]
             if len(candidate_lists) == 1
-            else _merge_candidates(candidate_lists, top_k=top_k)
+            else _merge_candidates(candidate_lists)
         )
         if len(candidate_lists) > 1:
             total = sum(len(items) for items in candidate_lists)
@@ -295,6 +319,7 @@ def stream_research(
                 quote = result.get("quote", "")
                 error = result.get("error", "")
                 if quote and score >= score_threshold:
+                    result["must_read"] = score >= 10
                     hits.append(result)
                     quote_len = len(quote)
                     msg = (
@@ -319,7 +344,7 @@ def stream_research(
                     yield _format_sse("log_skip", msg)
 
         hits.sort(key=lambda item: item.get("score", 0), reverse=True)
-        final_hits = hits[:8]
+        final_hits = hits
         msg = f"hits: {len(hits)}, return: {len(final_hits)}"
         _log(msg)
         yield _format_sse("log", msg)
