@@ -30,6 +30,10 @@ DOCS_BY_ID: Dict[str, Dict[str, Any]] = {}
 PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "public")
 LOGGER = logging.getLogger("uvicorn.error")
 LOGGER.setLevel(logging.INFO)
+SCORE_MIN = 5.0
+SCORE_RECOMMEND = 8.0
+SCORE_MUST = 10.0
+EXTENDED_LIMIT = 10
 
 if os.path.isdir(PUBLIC_DIR):
     app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="public")
@@ -67,14 +71,21 @@ def _build_text_report(items: List[Dict[str, Any]]) -> str:
         return sorted(rows, key=lambda item: item.get("score", 0), reverse=True)
 
     sections = [
-        ("推荐先阅读", sort_items([i for i in items if i.get("score", 0) >= 10])),
+        (
+            "推荐先阅读",
+            sort_items([i for i in items if i.get("score", 0) >= SCORE_MUST]),
+        ),
         (
             "推荐阅读",
-            sort_items([i for i in items if 8 <= i.get("score", 0) < 10]),
+            sort_items(
+                [i for i in items if SCORE_RECOMMEND <= i.get("score", 0) < SCORE_MUST]
+            ),
         ),
         (
             "扩展阅读",
-            sort_items([i for i in items if 5 <= i.get("score", 0) < 8])[:10],
+            sort_items(
+                [i for i in items if SCORE_MIN <= i.get("score", 0) < SCORE_RECOMMEND]
+            )[:EXTENDED_LIMIT],
         ),
     ]
 
@@ -86,9 +97,10 @@ def _build_text_report(items: List[Dict[str, Any]]) -> str:
                 title = row.get("title", "")
                 quote = row.get("quote", "")
                 url = row.get("url", "")
-                lines.append(title)
+                lines.append(f"# {title}")
                 lines.append(quote)
                 lines.append(url)
+                lines.append("")
                 lines.append("")
         else:
             lines.append("")
@@ -201,7 +213,7 @@ def stream_research(
     query: str = Query(..., min_length=1),
     top_k: int = Query(20, ge=1, le=50),
     max_workers: int = Query(100, ge=1, le=100),
-    score_threshold: float = Query(5.0, ge=0.0, le=10.0),
+    score_threshold: float = Query(SCORE_MIN, ge=0.0, le=10.0),
     chat_url: str = Query(DEFAULT_CHAT_URL),
 ) -> StreamingResponse:
     def event_generator() -> Iterable[str]:
@@ -352,8 +364,8 @@ def stream_research(
                 quote = result.get("quote", "")
                 error = result.get("error", "")
                 if quote and score >= score_threshold:
-                    result["must_read"] = score >= 10
-                    result["tier"] = "core" if score >= 8 else "extended"
+                    result["must_read"] = score >= SCORE_MUST
+                    result["tier"] = "core" if score >= SCORE_RECOMMEND else "extended"
                     hits.append(result)
                     quote_len = len(quote)
                     msg = (
