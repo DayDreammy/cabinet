@@ -7,19 +7,27 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import StreamingResponse
 
+from review import (
+    DEFAULT_CHAT_URL,
+    MODEL_NAME,
+    build_review_payload,
+    parse_review_response,
+    post_json,
+    review_doc,
+)
 from search import DEFAULT_DB_PATH, WEIGHTS, load_db, search_db, tokenize_query
-from review import DEFAULT_CHAT_URL, review_doc
 
 app = FastAPI()
 
 DOCS: List[Dict[str, Any]] = []
+DOCS_BY_ID: Dict[str, Dict[str, Any]] = {}
 PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "public")
-LOGGER = logging.getLogger("cabinet")
+LOGGER = logging.getLogger("uvicorn.error")
 LOGGER.setLevel(logging.INFO)
 
 if os.path.isdir(PUBLIC_DIR):
@@ -28,13 +36,13 @@ if os.path.isdir(PUBLIC_DIR):
 
 @app.on_event("startup")
 def _load_docs() -> None:
-    global DOCS
+    global DOCS, DOCS_BY_ID
     DOCS = load_db(DEFAULT_DB_PATH)
-
-
-@app.get("/")
-def index() -> FileResponse:
-    return FileResponse(os.path.join(PUBLIC_DIR, "index.html"))
+    DOCS_BY_ID = {}
+    for doc in DOCS:
+        doc_id = doc.get("id")
+        if doc_id:
+            DOCS_BY_ID[str(doc_id)] = doc
 
 
 def _format_sse(event: str, data: Any) -> str:
@@ -53,6 +61,56 @@ def _log(message: str) -> None:
     LOGGER.info(message)
 
 
+@app.get("/")
+def index() -> FileResponse:
+    return FileResponse(os.path.join(PUBLIC_DIR, "index.html"))
+
+
+@app.get("/doc/{doc_id}")
+def get_doc(doc_id: str) -> Dict[str, Any]:
+    doc = DOCS_BY_ID.get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="doc not found")
+    return {
+        "id": doc.get("id", ""),
+        "title": doc.get("title", ""),
+        "question": doc.get("question", ""),
+        "content": doc.get("content", ""),
+        "url": doc.get("url", ""),
+        "publishedAt": doc.get("publishedAt", ""),
+        "updatedAt": doc.get("updatedAt", ""),
+    }
+
+
+@app.get("/debug_review")
+def debug_review(
+    doc_id: str = Query(..., min_length=1),
+    query: str = Query(..., min_length=1),
+    chat_url: str = Query(DEFAULT_CHAT_URL),
+) -> Dict[str, Any]:
+    doc = DOCS_BY_ID.get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="doc not found")
+
+    payload = build_review_payload(doc, query, model=MODEL_NAME)
+    error = ""
+    try:
+        response = post_json(chat_url, payload)
+    except Exception as exc:
+        error = str(exc)
+        response = {}
+
+    parsed = parse_review_response(doc, response)
+    return {
+        "doc_id": doc_id,
+        "query": query,
+        "payload": payload,
+        "response": response,
+        "parsed": parsed,
+        "error": error,
+    }
+
+
 @app.get("/stream_research")
 def stream_research(
     query: str = Query(..., min_length=1),
@@ -66,10 +124,12 @@ def stream_research(
         msg = f"search start: {query}"
         _log(msg)
         yield _format_sse("log", msg)
+
         tokens = tokenize_query(query)
         msg = f"query tokens ({len(tokens)}): {tokens}"
         _log(msg)
         yield _format_sse("log", msg)
+
         msg = (
             "weights: "
             f"title={WEIGHTS['title']} "
@@ -83,7 +143,18 @@ def stream_research(
         msg = f"search done: {len(candidates)} candidates, start review"
         _log(msg)
         yield _format_sse("log", msg)
+
         if candidates:
+            candidates_payload = [
+                {
+                    "id": str(item.get("id", "")),
+                    "title": item.get("title", ""),
+                    "search_score": round(float(item.get("search_score", 0)), 2),
+                }
+                for item in candidates
+            ]
+            yield _format_sse("candidates", candidates_payload)
+
             preview = ", ".join(
                 f"{idx + 1}.{item.get('title', '(untitled)')}[{item.get('search_score', 0):.1f}]"
                 for idx, item in enumerate(candidates[:5])
@@ -98,6 +169,7 @@ def stream_research(
             msg = f"review threads: {max_workers}"
             _log(msg)
             yield _format_sse("log", msg)
+
             futures = [executor.submit(review_doc, doc, query, chat_url) for doc in candidates]
 
             for future in as_completed(futures):
@@ -122,16 +194,12 @@ def stream_research(
                     title = result.get("title", "(unknown)")
                     if error:
                         msg = f"skip: {title} (error: {error})"
-                        _log(msg)
-                        yield _format_sse("log_skip", msg)
                     elif not quote:
                         msg = f"skip: {title} (no quote, score={score:.1f})"
-                        _log(msg)
-                        yield _format_sse("log_skip", msg)
                     else:
                         msg = f"skip: {title} (score={score:.1f} < {score_threshold})"
-                        _log(msg)
-                        yield _format_sse("log_skip", msg)
+                    _log(msg)
+                    yield _format_sse("log_skip", msg)
 
         hits.sort(key=lambda item: item.get("score", 0), reverse=True)
         final_hits = hits[:8]

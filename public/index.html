@@ -16,7 +16,7 @@
         color: #1f2430;
       }
       .container {
-        max-width: 960px;
+        max-width: 1080px;
         margin: 0 auto;
       }
       h1 {
@@ -32,7 +32,7 @@
       }
       .controls {
         display: grid;
-        grid-template-columns: 1fr 160px;
+        grid-template-columns: 1fr 1fr 160px;
         gap: 12px;
         align-items: end;
         margin-bottom: 16px;
@@ -86,7 +86,8 @@
         color: #e2e8f0;
         border-radius: 8px;
         padding: 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
         font-size: 12px;
       }
       .log .skip {
@@ -121,6 +122,85 @@
         font-size: 12px;
         color: #64748b;
       }
+      .candidates {
+        margin-top: 16px;
+        background: #fff;
+        border: 1px solid #e3e6ee;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .candidates table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .candidates th,
+      .candidates td {
+        padding: 8px 6px;
+        border-bottom: 1px solid #e3e6ee;
+        text-align: left;
+      }
+      .candidates th {
+        color: #5a6270;
+        font-weight: 600;
+      }
+      .link-btn {
+        border: 1px solid #cbd5f5;
+        background: #eef2ff;
+        color: #1e3a8a;
+        padding: 4px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+      }
+      .modal-content {
+        background: #fff;
+        max-width: 920px;
+        width: 100%;
+        border-radius: 12px;
+        padding: 16px;
+        max-height: 80vh;
+        overflow: auto;
+        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+      }
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+      .modal-header h3 {
+        margin: 0;
+        font-size: 16px;
+      }
+      .modal-close {
+        border: none;
+        background: #e2e8f0;
+        padding: 6px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .modal pre {
+        white-space: pre-wrap;
+        font-size: 13px;
+        background: #f8fafc;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #e3e6ee;
+      }
       .footer {
         margin-top: 12px;
         font-size: 12px;
@@ -147,7 +227,11 @@
           </div>
           <div>
             <label for="endpoint">SSE Endpoint</label>
-            <input id="endpoint" type="text" value="http://127.0.0.1:8001/stream_research" />
+            <input
+              id="endpoint"
+              type="text"
+              value="http://127.0.0.1:8001/stream_research"
+            />
           </div>
           <div>
             <button id="start" class="btn">Start</button>
@@ -164,9 +248,46 @@
             <div id="cards" class="cards"></div>
           </div>
         </div>
-        <div class="footer">
-          Start the backend first: python -m uvicorn main:app --host 127.0.0.1 --port 8001
+        <div class="candidates">
+          <div class="section-title">Candidates (Debug)</div>
+          <div id="candidates"></div>
         </div>
+        <div class="footer">
+          Start the backend first: python -m uvicorn main:app --host 127.0.0.1
+          --port 8001
+        </div>
+      </div>
+    </div>
+
+    <div id="modal" class="modal" aria-hidden="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modal-title">Document</h3>
+          <button id="modal-close" class="modal-close">Close</button>
+        </div>
+        <div id="modal-meta" class="meta"></div>
+        <h4>Question</h4>
+        <p id="modal-question"></p>
+        <h4>Content</h4>
+        <pre id="modal-content"></pre>
+      </div>
+    </div>
+
+    <div id="llm-modal" class="modal" aria-hidden="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="llm-title">LLM Debug</h3>
+          <button id="llm-close" class="modal-close">Close</button>
+        </div>
+        <div id="llm-meta" class="meta"></div>
+        <h4>Prompt</h4>
+        <pre id="llm-prompt"></pre>
+        <h4>Payload</h4>
+        <pre id="llm-payload"></pre>
+        <h4>Response</h4>
+        <pre id="llm-response"></pre>
+        <h4>Parsed</h4>
+        <pre id="llm-parsed"></pre>
       </div>
     </div>
 
@@ -177,8 +298,24 @@
       const stopBtn = document.getElementById("stop");
       const logEl = document.getElementById("log");
       const cardsEl = document.getElementById("cards");
+      const candidatesEl = document.getElementById("candidates");
+      const modal = document.getElementById("modal");
+      const modalTitle = document.getElementById("modal-title");
+      const modalMeta = document.getElementById("modal-meta");
+      const modalQuestion = document.getElementById("modal-question");
+      const modalContent = document.getElementById("modal-content");
+      const modalClose = document.getElementById("modal-close");
+      const llmModal = document.getElementById("llm-modal");
+      const llmTitle = document.getElementById("llm-title");
+      const llmMeta = document.getElementById("llm-meta");
+      const llmPrompt = document.getElementById("llm-prompt");
+      const llmPayload = document.getElementById("llm-payload");
+      const llmResponse = document.getElementById("llm-response");
+      const llmParsed = document.getElementById("llm-parsed");
+      const llmClose = document.getElementById("llm-close");
 
       let source = null;
+      let baseUrl = "";
 
       function addLog(message, className) {
         const line = document.createElement("div");
@@ -215,11 +352,136 @@
       function resetUI() {
         logEl.textContent = "";
         cardsEl.textContent = "";
+        candidatesEl.textContent = "";
       }
 
       function setRunning(isRunning) {
         startBtn.disabled = isRunning;
         stopBtn.disabled = !isRunning;
+      }
+
+      function resolveBaseUrl() {
+        const endpoint = endpointInput.value.trim();
+        try {
+          baseUrl = new URL(endpoint).origin;
+        } catch (err) {
+          baseUrl = "";
+        }
+      }
+
+      function renderCandidates(items) {
+        if (!Array.isArray(items) || items.length === 0) {
+          candidatesEl.textContent = "No candidates.";
+          return;
+        }
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        thead.innerHTML =
+          "<tr><th>#</th><th>Title</th><th>Score</th><th>Raw</th><th>LLM</th></tr>";
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        items.forEach((item, index) => {
+          const row = document.createElement("tr");
+          const title = item.title || "(untitled)";
+          const score = item.search_score ?? "-";
+          const id = item.id || "";
+          row.innerHTML = `<td>${index + 1}</td><td>${title}</td><td>${score}</td>`;
+          const rawCell = document.createElement("td");
+          const rawBtn = document.createElement("button");
+          rawBtn.className = "link-btn";
+          rawBtn.textContent = "View";
+          rawBtn.addEventListener("click", () => showDoc(id));
+          rawCell.appendChild(rawBtn);
+          row.appendChild(rawCell);
+          const llmCell = document.createElement("td");
+          const llmBtn = document.createElement("button");
+          llmBtn.className = "link-btn";
+          llmBtn.textContent = "LLM";
+          llmBtn.addEventListener("click", () => showLlm(id));
+          llmCell.appendChild(llmBtn);
+          row.appendChild(llmCell);
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        candidatesEl.textContent = "";
+        candidatesEl.appendChild(table);
+      }
+
+      function openModal(doc) {
+        modalTitle.textContent = doc.title || "(untitled)";
+        modalMeta.textContent = doc.url ? doc.url : "";
+        modalQuestion.textContent = doc.question || "";
+        modalContent.textContent = doc.content || "";
+        modal.classList.add("active");
+        modal.setAttribute("aria-hidden", "false");
+      }
+
+      function closeModal() {
+        modal.classList.remove("active");
+        modal.setAttribute("aria-hidden", "true");
+      }
+
+      function openLlmModal(data) {
+        llmTitle.textContent = "LLM Debug";
+        const error = data.error ? ` | error: ${data.error}` : "";
+        llmMeta.textContent = `doc_id: ${data.doc_id} | query: ${data.query}${error}`;
+        const messages = data.payload?.messages || [];
+        const userMessage =
+          messages.find((msg) => msg.role === "user")?.content || "";
+        llmPrompt.textContent = userMessage;
+        llmPayload.textContent = JSON.stringify(data.payload || {}, null, 2);
+        llmResponse.textContent = JSON.stringify(data.response || {}, null, 2);
+        llmParsed.textContent = JSON.stringify(data.parsed || {}, null, 2);
+        llmModal.classList.add("active");
+        llmModal.setAttribute("aria-hidden", "false");
+      }
+
+      function closeLlmModal() {
+        llmModal.classList.remove("active");
+        llmModal.setAttribute("aria-hidden", "true");
+      }
+
+      async function showDoc(docId) {
+        if (!docId) {
+          addLog("doc id missing");
+          return;
+        }
+        const prefix = baseUrl || "";
+        const url = `${prefix}/doc/${encodeURIComponent(docId)}`;
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) {
+            addLog(`doc fetch failed: ${resp.status}`);
+            return;
+          }
+          const data = await resp.json();
+          openModal(data);
+        } catch (err) {
+          addLog("doc fetch error");
+        }
+      }
+
+      async function showLlm(docId) {
+        const query = queryInput.value.trim();
+        if (!docId || !query) {
+          addLog("doc id or query missing");
+          return;
+        }
+        const prefix = baseUrl || "";
+        const url = `${prefix}/debug_review?doc_id=${encodeURIComponent(
+          docId
+        )}&query=${encodeURIComponent(query)}`;
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) {
+            addLog(`llm debug failed: ${resp.status}`);
+            return;
+          }
+          const data = await resp.json();
+          openLlmModal(data);
+        } catch (err) {
+          addLog("llm debug error");
+        }
       }
 
       startBtn.addEventListener("click", () => {
@@ -231,6 +493,7 @@
         }
 
         resetUI();
+        resolveBaseUrl();
         setRunning(true);
 
         const url = `${endpoint}?query=${encodeURIComponent(query)}`;
@@ -241,6 +504,14 @@
         });
         source.addEventListener("log_skip", (event) => {
           addLog(event.data, "skip");
+        });
+        source.addEventListener("candidates", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            renderCandidates(data);
+          } catch (err) {
+            addLog("invalid candidates payload");
+          }
         });
         source.addEventListener("card_found", (event) => {
           addLog("hit: card_found", "hit");
@@ -284,6 +555,19 @@
           addLog("stopped");
         }
         setRunning(false);
+      });
+
+      modalClose.addEventListener("click", closeModal);
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          closeModal();
+        }
+      });
+      llmClose.addEventListener("click", closeLlmModal);
+      llmModal.addEventListener("click", (event) => {
+        if (event.target === llmModal) {
+          closeLlmModal();
+        }
       });
     </script>
   </body>
