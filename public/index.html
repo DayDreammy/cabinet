@@ -1,806 +1,877 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cabinet MVP Test</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-      }
-      body {
-        margin: 0;
-        padding: 24px;
-        background: #f6f7fb;
-        color: #1f2430;
-      }
-      .container {
-        max-width: 1080px;
-        margin: 0 auto;
-      }
-      h1 {
-        font-size: 20px;
-        margin: 0 0 16px;
-      }
-      .panel {
-        background: #fff;
-        border: 1px solid #e3e6ee;
-        border-radius: 10px;
-        padding: 16px;
-        box-shadow: 0 8px 24px rgba(31, 36, 48, 0.08);
-      }
-      .controls {
-        display: grid;
-        grid-template-columns: 1fr 160px;
-        gap: 12px;
-        align-items: end;
-        margin-bottom: 16px;
-      }
-      .controls label {
-        font-size: 12px;
-        color: #5a6270;
-        display: block;
-        margin-bottom: 6px;
-      }
-      input[type="text"] {
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 1px solid #cfd6e2;
-        font-size: 14px;
-      }
-      .btn {
-        padding: 10px 14px;
-        border-radius: 8px;
-        border: 1px solid #1f2430;
-        background: #1f2430;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .btn.secondary {
-        background: #fff;
-        color: #1f2430;
-      }
-      .btn[disabled] {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-      }
-      .section-title {
-        font-size: 13px;
-        color: #5a6270;
-        margin: 0 0 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .log {
-        height: 360px;
-        overflow: auto;
-        background: #0f172a;
-        color: #e2e8f0;
-        border-radius: 8px;
-        padding: 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-          "Liberation Mono", "Courier New", monospace;
-        font-size: 12px;
-      }
-      .log .skip {
-        color: #94a3b8;
-      }
-      .log .hit {
-        color: #22c55e;
-      }
-      .cards {
-        display: grid;
-        gap: 12px;
-      }
-      .card {
-        border: 1px solid #e3e6ee;
-        border-radius: 10px;
-        padding: 12px;
-        background: #f8fafc;
-      }
-      .card h3 {
-        margin: 0 0 6px;
-        font-size: 15px;
-      }
-      .card-header {
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cabinet</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #f6f7fb;
+      color: #1f2430;
+    }
+
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0 0 16px;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #e3e6ee;
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(31, 36, 48, 0.08);
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: stretch;
+      margin-bottom: 16px;
+    }
+
+      .controls .actions {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
         gap: 8px;
+        align-items: stretch;
+        align-self: stretch;
       }
-      .tag {
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        border: 1px solid transparent;
-        white-space: nowrap;
+
+    .controls label {
+      font-size: 12px;
+      color: #5a6270;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #cfd6e2;
+      font-size: 14px;
+      resize: vertical;
+    }
+
+    .btn {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #1f2430;
+      background: #1f2430;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+      .controls .actions .btn {
+        height: 100%;
       }
-      .tag-primary {
-        color: #065f46;
-        background: #d1fae5;
-        border-color: #6ee7b7;
+
+    .btn.secondary {
+      background: #fff;
+      color: #1f2430;
+    }
+
+    .btn[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      color: #5a6270;
+      margin: 0 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .log {
+      height: 360px;
+      overflow: auto;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .log .skip {
+      color: #94a3b8;
+    }
+
+    .log .hit {
+      color: #22c55e;
+    }
+
+    .cards {
+      display: grid;
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid #e3e6ee;
+      border-radius: 10px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .tag-primary {
+      color: #065f46;
+      background: #d1fae5;
+      border-color: #6ee7b7;
+    }
+
+    .tag-secondary {
+      color: #1d4ed8;
+      background: #dbeafe;
+      border-color: #93c5fd;
+    }
+
+    .tag-muted {
+      color: #475569;
+      background: #e2e8f0;
+      border-color: #cbd5e1;
+    }
+
+    .card p {
+      margin: 0 0 8px;
+      font-size: 13px;
+    }
+
+    .card a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .meta {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .candidates {
+      margin-top: 16px;
+      background: #fff;
+      border: 1px solid #e3e6ee;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .term-searches {
+      margin-top: 16px;
+      background: #fff;
+      border: 1px solid #e3e6ee;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .text-report {
+      margin-top: 16px;
+      background: #fff;
+      border: 1px solid #e3e6ee;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .text-report pre {
+      background: #f8fafc;
+      border: 1px solid #e3e6ee;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .text-report .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .candidates table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .term-searches table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .candidates th,
+    .candidates td {
+      padding: 8px 6px;
+      border-bottom: 1px solid #e3e6ee;
+      text-align: left;
+    }
+
+    .term-searches th,
+    .term-searches td {
+      padding: 8px 6px;
+      border-bottom: 1px solid #e3e6ee;
+      text-align: left;
+    }
+
+    .candidates th {
+      color: #5a6270;
+      font-weight: 600;
+    }
+
+    .term-searches th {
+      color: #5a6270;
+      font-weight: 600;
+    }
+
+    .link-btn {
+      border: 1px solid #cbd5f5;
+      background: #eef2ff;
+      color: #1e3a8a;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 1000;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: #fff;
+      max-width: 920px;
+      width: 100%;
+      border-radius: 12px;
+      padding: 16px;
+      max-height: 80vh;
+      overflow: auto;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .modal-close {
+      border: none;
+      background: #e2e8f0;
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .modal pre {
+      white-space: pre-wrap;
+      font-size: 13px;
+      background: #f8fafc;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #e3e6ee;
+    }
+
+    .modal mark {
+      background: #fde68a;
+      padding: 0 2px;
+      border-radius: 4px;
+    }
+
+    .footer {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    @media (max-width: 900px) {
+      .controls {
+        grid-template-columns: 1fr;
       }
-      .tag-secondary {
-        color: #1d4ed8;
-        background: #dbeafe;
-        border-color: #93c5fd;
+
+      .row {
+        grid-template-columns: 1fr;
       }
-      .tag-muted {
-        color: #475569;
-        background: #e2e8f0;
-        border-color: #cbd5e1;
-      }
-      .card p {
-        margin: 0 0 8px;
-        font-size: 13px;
-      }
-      .card a {
-        color: #2563eb;
-        text-decoration: none;
-      }
-      .meta {
-        font-size: 12px;
-        color: #64748b;
-      }
-      .candidates {
-        margin-top: 16px;
-        background: #fff;
-        border: 1px solid #e3e6ee;
-        border-radius: 10px;
-        padding: 12px;
-      }
-      .term-searches {
-        margin-top: 16px;
-        background: #fff;
-        border: 1px solid #e3e6ee;
-        border-radius: 10px;
-        padding: 12px;
-      }
-      .text-report {
-        margin-top: 16px;
-        background: #fff;
-        border: 1px solid #e3e6ee;
-        border-radius: 10px;
-        padding: 12px;
-      }
-      .text-report pre {
-        background: #f8fafc;
-        border: 1px solid #e3e6ee;
-        border-radius: 8px;
-        padding: 12px;
-        font-size: 13px;
-        white-space: pre-wrap;
-      }
-      .text-report .toolbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 8px;
-      }
-      .candidates table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
-      }
-      .term-searches table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
-      }
-      .candidates th,
-      .candidates td {
-        padding: 8px 6px;
-        border-bottom: 1px solid #e3e6ee;
-        text-align: left;
-      }
-      .term-searches th,
-      .term-searches td {
-        padding: 8px 6px;
-        border-bottom: 1px solid #e3e6ee;
-        text-align: left;
-      }
-      .candidates th {
-        color: #5a6270;
-        font-weight: 600;
-      }
-      .term-searches th {
-        color: #5a6270;
-        font-weight: 600;
-      }
-      .link-btn {
-        border: 1px solid #cbd5f5;
-        background: #eef2ff;
-        color: #1e3a8a;
-        padding: 4px 8px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 12px;
-      }
-      .modal {
-        position: fixed;
-        inset: 0;
-        background: rgba(15, 23, 42, 0.6);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        z-index: 1000;
-      }
-      .modal.active {
-        display: flex;
-      }
-      .modal-content {
-        background: #fff;
-        max-width: 920px;
-        width: 100%;
-        border-radius: 12px;
-        padding: 16px;
-        max-height: 80vh;
-        overflow: auto;
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
-      }
-      .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-      }
-      .modal-header h3 {
-        margin: 0;
-        font-size: 16px;
-      }
-      .modal-close {
-        border: none;
-        background: #e2e8f0;
-        padding: 6px 10px;
-        border-radius: 8px;
-        cursor: pointer;
-      }
-      .modal pre {
-        white-space: pre-wrap;
-        font-size: 13px;
-        background: #f8fafc;
-        padding: 12px;
-        border-radius: 8px;
-        border: 1px solid #e3e6ee;
-      }
-      .modal mark {
-        background: #fde68a;
-        padding: 0 2px;
-        border-radius: 4px;
-      }
-      .footer {
-        margin-top: 12px;
-        font-size: 12px;
-        color: #64748b;
-      }
-      @media (max-width: 900px) {
-        .controls {
-          grid-template-columns: 1fr;
-        }
-        .row {
-          grid-template-columns: 1fr;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <h1>Cabinet MVP Test</h1>
-      <div class="panel">
-        <div class="controls">
-          <div>
-            <label for="query">Query</label>
-            <input id="query" type="text" value="love" />
-          </div>
-          <div>
-            <button id="start" class="btn">Start</button>
-            <button id="stop" class="btn secondary" disabled>Stop</button>
-          </div>
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Cabinet</h1>
+    <div class="panel">
+      <div class="controls">
+        <div>
+          <label for="query">Query</label>
+          <textarea id="query" rows="3">love</textarea>
         </div>
-        <div class="row">
-          <div>
-            <div class="section-title">Logs</div>
-            <div id="log" class="log"></div>
-          </div>
-          <div>
-            <div class="section-title">Results</div>
-            <div id="cards" class="cards"></div>
-          </div>
-        </div>
-        <div class="candidates">
-          <div class="section-title">Candidates (Debug)</div>
-          <div id="candidates"></div>
-        </div>
-        <div class="term-searches">
-          <div class="section-title">Term Searches (Debug)</div>
-          <div id="term-searches"></div>
-        </div>
-        <div class="text-report">
-          <div class="toolbar">
-            <div class="section-title">Text Answer</div>
-            <button id="copy-report" class="link-btn" disabled>Copy</button>
-          </div>
-          <pre id="text-report"></pre>
-        </div>
-        <div class="footer">
-          Start the backend first: python -m uvicorn main:app --host 127.0.0.1
-          --port 8001
+        <div class="actions">
+          <button id="start" class="btn">Start</button>
         </div>
       </div>
-    </div>
-
-    <div id="modal" class="modal" aria-hidden="true">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 id="modal-title">Document</h3>
-          <button id="modal-close" class="modal-close">Close</button>
+      <div class="row">
+        <div>
+          <div class="section-title">Logs</div>
+          <div id="log" class="log"></div>
         </div>
-        <div id="modal-meta" class="meta"></div>
-        <h4>Question</h4>
-        <p id="modal-question"></p>
-        <h4>Content</h4>
-        <pre id="modal-content"></pre>
+        <div>
+          <div class="section-title">Results</div>
+          <div id="cards" class="cards"></div>
+        </div>
+      </div>
+      <div class="candidates">
+        <div class="section-title">Candidates (Debug)</div>
+        <div id="candidates"></div>
+      </div>
+      <div class="term-searches">
+        <div class="section-title">Term Searches (Debug)</div>
+        <div id="term-searches"></div>
+      </div>
+      <div class="text-report">
+        <div class="toolbar">
+          <div class="section-title">Text Answer</div>
+          <button id="copy-report" class="link-btn" disabled>Copy</button>
+        </div>
+        <pre id="text-report"></pre>
+      </div>
+      <div class="footer">
+        Start the backend first: python -m uvicorn main:app --host 127.0.0.1
+        --port 8001
       </div>
     </div>
+  </div>
 
-    <div id="llm-modal" class="modal" aria-hidden="true">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 id="llm-title">LLM Debug</h3>
-          <button id="llm-close" class="modal-close">Close</button>
-        </div>
-        <div id="llm-meta" class="meta"></div>
-        <h4>Prompt</h4>
-        <pre id="llm-prompt"></pre>
-        <h4>Payload</h4>
-        <pre id="llm-payload"></pre>
-        <h4>Response</h4>
-        <pre id="llm-response"></pre>
-        <h4>Parsed</h4>
-        <pre id="llm-parsed"></pre>
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Document</h3>
+        <button id="modal-close" class="modal-close">Close</button>
       </div>
+      <div id="modal-meta" class="meta"></div>
+      <h4>Question</h4>
+      <p id="modal-question"></p>
+      <h4>Content</h4>
+      <pre id="modal-content"></pre>
     </div>
+  </div>
 
-    <script>
-      const queryInput = document.getElementById("query");
-      const endpoint = "http://127.0.0.1:8002/stream_research";
-      const startBtn = document.getElementById("start");
-      const stopBtn = document.getElementById("stop");
-      const logEl = document.getElementById("log");
-      const cardsEl = document.getElementById("cards");
-      const candidatesEl = document.getElementById("candidates");
-      const termSearchesEl = document.getElementById("term-searches");
-      const textReportEl = document.getElementById("text-report");
-      const copyReportBtn = document.getElementById("copy-report");
-      const modal = document.getElementById("modal");
-      const modalTitle = document.getElementById("modal-title");
-      const modalMeta = document.getElementById("modal-meta");
-      const modalQuestion = document.getElementById("modal-question");
-      const modalContent = document.getElementById("modal-content");
-      const modalClose = document.getElementById("modal-close");
-      const llmModal = document.getElementById("llm-modal");
-      const llmTitle = document.getElementById("llm-title");
-      const llmMeta = document.getElementById("llm-meta");
-      const llmPrompt = document.getElementById("llm-prompt");
-      const llmPayload = document.getElementById("llm-payload");
-      const llmResponse = document.getElementById("llm-response");
-      const llmParsed = document.getElementById("llm-parsed");
-      const llmClose = document.getElementById("llm-close");
+  <div id="llm-modal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="llm-title">LLM Debug</h3>
+        <button id="llm-close" class="modal-close">Close</button>
+      </div>
+      <div id="llm-meta" class="meta"></div>
+      <h4>Prompt</h4>
+      <pre id="llm-prompt"></pre>
+      <h4>Payload</h4>
+      <pre id="llm-payload"></pre>
+      <h4>Response</h4>
+      <pre id="llm-response"></pre>
+      <h4>Parsed</h4>
+      <pre id="llm-parsed"></pre>
+    </div>
+  </div>
 
-      let source = null;
-      let baseUrl = "";
-      let resultsCache = [];
-      let termSearchCache = {};
+  <script>
+    const queryInput = document.getElementById("query");
+    const endpoint = "http://127.0.0.1:8002/stream_research";
+    const startBtn = document.getElementById("start");
+    const logEl = document.getElementById("log");
+    const cardsEl = document.getElementById("cards");
+    const candidatesEl = document.getElementById("candidates");
+    const termSearchesEl = document.getElementById("term-searches");
+    const textReportEl = document.getElementById("text-report");
+    const copyReportBtn = document.getElementById("copy-report");
+    const modal = document.getElementById("modal");
+    const modalTitle = document.getElementById("modal-title");
+    const modalMeta = document.getElementById("modal-meta");
+    const modalQuestion = document.getElementById("modal-question");
+    const modalContent = document.getElementById("modal-content");
+    const modalClose = document.getElementById("modal-close");
+    const llmModal = document.getElementById("llm-modal");
+    const llmTitle = document.getElementById("llm-title");
+    const llmMeta = document.getElementById("llm-meta");
+    const llmPrompt = document.getElementById("llm-prompt");
+    const llmPayload = document.getElementById("llm-payload");
+    const llmResponse = document.getElementById("llm-response");
+    const llmParsed = document.getElementById("llm-parsed");
+    const llmClose = document.getElementById("llm-close");
 
-      function addLog(message, className) {
-        const line = document.createElement("div");
-        line.textContent = message;
-        if (className) {
-          line.classList.add(className);
-        }
-        logEl.appendChild(line);
-        logEl.scrollTop = logEl.scrollHeight;
+    let source = null;
+    let baseUrl = "";
+    let resultsCache = [];
+    let termSearchCache = {};
+
+    function addLog(message, className) {
+      const line = document.createElement("div");
+      line.textContent = message;
+      if (className) {
+        line.classList.add(className);
       }
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
 
-      function renderResults(items) {
-        cardsEl.textContent = "";
-        items
-          .slice()
-          .sort((a, b) => (b.score || 0) - (a.score || 0))
-          .forEach((result) => {
-            const card = document.createElement("div");
-            card.className = "card";
-            const title = document.createElement("h3");
-            title.textContent = result.title || "(untitled)";
-            const quote = document.createElement("p");
-            quote.textContent = result.quote || "";
-            const meta = document.createElement("div");
-            meta.className = "meta";
-            meta.textContent = `score: ${result.score} | offset: ${result.quote_start}-${result.quote_end}`;
-            const tag = document.createElement("span");
-            tag.className = "tag";
-            if (result.score >= 10) {
-              tag.textContent = "推荐先阅读";
-              tag.classList.add("tag-primary");
-            } else if (result.score >= 8) {
-              tag.textContent = "推荐阅读";
-              tag.classList.add("tag-secondary");
-            } else if (result.score >= 5) {
-              tag.textContent = "扩展阅读";
-              tag.classList.add("tag-muted");
-            }
-            const link = document.createElement("a");
-            link.href = result.url || "#";
-            link.textContent = "Open source";
-            link.target = "_blank";
-            const viewBtn = document.createElement("button");
-            viewBtn.className = "link-btn";
-            viewBtn.textContent = "View";
-            viewBtn.addEventListener("click", (event) => {
-              event.stopPropagation();
-              showDoc(result.id, {
-                start: result.quote_start,
-                end: result.quote_end,
-                quote: result.quote,
-              });
+    function renderResults(items) {
+      cardsEl.textContent = "";
+      items
+        .slice()
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .forEach((result) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          const title = document.createElement("h3");
+          title.textContent = result.title || "(untitled)";
+          const quote = document.createElement("p");
+          quote.textContent = result.quote || "";
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = `score: ${result.score} | offset: ${result.quote_start}-${result.quote_end}`;
+          const tag = document.createElement("span");
+          tag.className = "tag";
+          if (result.score >= 10) {
+            tag.textContent = "推荐先阅读";
+            tag.classList.add("tag-primary");
+          } else if (result.score >= 8) {
+            tag.textContent = "推荐阅读";
+            tag.classList.add("tag-secondary");
+          } else if (result.score >= 5) {
+            tag.textContent = "扩展阅读";
+            tag.classList.add("tag-muted");
+          }
+          const link = document.createElement("a");
+          link.href = result.url || "#";
+          link.textContent = "Open source";
+          link.target = "_blank";
+          const viewBtn = document.createElement("button");
+          viewBtn.className = "link-btn";
+          viewBtn.textContent = "View";
+          viewBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            showDoc(result.id, {
+              start: result.quote_start,
+              end: result.quote_end,
+              quote: result.quote,
             });
-
-            const header = document.createElement("div");
-            header.className = "card-header";
-            header.appendChild(title);
-            if (tag.textContent) {
-              header.appendChild(tag);
-            }
-            card.appendChild(header);
-            card.appendChild(quote);
-            card.appendChild(meta);
-            const actions = document.createElement("div");
-            actions.className = "meta";
-            actions.style.display = "flex";
-            actions.style.gap = "8px";
-            actions.style.alignItems = "center";
-            actions.appendChild(viewBtn);
-            actions.appendChild(link);
-            card.appendChild(actions);
-            cardsEl.appendChild(card);
           });
+
+          const header = document.createElement("div");
+          header.className = "card-header";
+          header.appendChild(title);
+          if (tag.textContent) {
+            header.appendChild(tag);
+          }
+          card.appendChild(header);
+          card.appendChild(quote);
+          card.appendChild(meta);
+          const actions = document.createElement("div");
+          actions.className = "meta";
+          actions.style.display = "flex";
+          actions.style.gap = "8px";
+          actions.style.alignItems = "center";
+          actions.appendChild(viewBtn);
+          actions.appendChild(link);
+          card.appendChild(actions);
+          cardsEl.appendChild(card);
+        });
+    }
+
+    function resetUI() {
+      logEl.textContent = "";
+      cardsEl.textContent = "";
+      candidatesEl.textContent = "";
+      resultsCache = [];
+      termSearchCache = {};
+      termSearchesEl.textContent = "";
+      textReportEl.textContent = "";
+      copyReportBtn.disabled = true;
+    }
+
+    function setRunning(isRunning) {
+      startBtn.disabled = isRunning;
+    }
+
+    function resolveBaseUrl() {
+      try {
+        baseUrl = new URL(endpoint).origin;
+      } catch (err) {
+        baseUrl = "";
+      }
+    }
+
+    function renderCandidates(items) {
+      if (!Array.isArray(items) || items.length === 0) {
+        candidatesEl.textContent = "No candidates.";
+        return;
+      }
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      thead.innerHTML =
+        "<tr><th>#</th><th>Title</th><th>Score</th><th>Raw</th><th>LLM</th></tr>";
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      items.forEach((item, index) => {
+        const row = document.createElement("tr");
+        const title = item.title || "(untitled)";
+        const score = item.search_score ?? "-";
+        const id = item.id || "";
+        row.innerHTML = `<td>${index + 1}</td><td>${title}</td><td>${score}</td>`;
+        const rawCell = document.createElement("td");
+        const rawBtn = document.createElement("button");
+        rawBtn.className = "link-btn";
+        rawBtn.textContent = "View";
+        rawBtn.addEventListener("click", () => showDoc(id));
+        rawCell.appendChild(rawBtn);
+        row.appendChild(rawCell);
+        const llmCell = document.createElement("td");
+        const llmBtn = document.createElement("button");
+        llmBtn.className = "link-btn";
+        llmBtn.textContent = "LLM";
+        llmBtn.addEventListener("click", () => showLlm(id));
+        llmCell.appendChild(llmBtn);
+        row.appendChild(llmCell);
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      candidatesEl.textContent = "";
+      candidatesEl.appendChild(table);
+    }
+
+    function renderTermSearches() {
+      const terms = Object.keys(termSearchCache);
+      if (terms.length === 0) {
+        termSearchesEl.textContent = "No term searches.";
+        return;
+      }
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      thead.innerHTML = "<tr><th>Term</th><th>Count</th><th>Top 3</th></tr>";
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      terms.forEach((term) => {
+        const entry = termSearchCache[term];
+        const row = document.createElement("tr");
+        const topPreview = (entry.top || [])
+          .map((item, idx) => `${idx + 1}.${item.title}[${item.search_score}]`)
+          .join(", ");
+        row.innerHTML = `<td>${term}</td><td>${entry.count}</td><td>${topPreview}</td>`;
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      termSearchesEl.textContent = "";
+      termSearchesEl.appendChild(table);
+    }
+
+    function setTextReport(text) {
+      textReportEl.textContent = text || "";
+      copyReportBtn.disabled = !text;
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function buildHighlightedContent(content, highlight) {
+      if (!content) {
+        return "";
+      }
+      let start = highlight?.start;
+      let end = highlight?.end;
+      const quote = highlight?.quote || "";
+      if (!(Number.isInteger(start) && Number.isInteger(end) && end > start)) {
+        if (quote) {
+          const found = content.indexOf(quote);
+          if (found !== -1) {
+            start = found;
+            end = found + quote.length;
+          }
+        }
+      }
+      if (Number.isInteger(start) && Number.isInteger(end) && end > start) {
+        return (
+          escapeHtml(content.slice(0, start)) +
+          "<mark>" +
+          escapeHtml(content.slice(start, end)) +
+          "</mark>" +
+          escapeHtml(content.slice(end))
+        );
+      }
+      return escapeHtml(content);
+    }
+
+    function openModal(doc, highlight) {
+      modalTitle.textContent = doc.title || "(untitled)";
+      modalMeta.textContent = doc.url ? doc.url : "";
+      modalQuestion.textContent = doc.question || "";
+      modalContent.innerHTML = buildHighlightedContent(doc.content || "", highlight);
+      modal.classList.add("active");
+      modal.setAttribute("aria-hidden", "false");
+    }
+
+    function closeModal() {
+      modal.classList.remove("active");
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    function openLlmModal(data) {
+      llmTitle.textContent = "LLM Debug";
+      const error = data.error ? ` | error: ${data.error}` : "";
+      llmMeta.textContent = `doc_id: ${data.doc_id} | query: ${data.query}${error}`;
+      const messages = data.payload?.messages || [];
+      const userMessage =
+        messages.find((msg) => msg.role === "user")?.content || "";
+      llmPrompt.textContent = userMessage;
+      llmPayload.textContent = JSON.stringify(data.payload || {}, null, 2);
+      llmResponse.textContent = JSON.stringify(data.response || {}, null, 2);
+      llmParsed.textContent = JSON.stringify(data.parsed || {}, null, 2);
+      llmModal.classList.add("active");
+      llmModal.setAttribute("aria-hidden", "false");
+    }
+
+    function closeLlmModal() {
+      llmModal.classList.remove("active");
+      llmModal.setAttribute("aria-hidden", "true");
+    }
+
+    async function showDoc(docId, highlight) {
+      if (!docId) {
+        addLog("doc id missing");
+        return;
+      }
+      const prefix = baseUrl || "";
+      const url = `${prefix}/doc/${encodeURIComponent(docId)}`;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          addLog(`doc fetch failed: ${resp.status}`);
+          return;
+        }
+        const data = await resp.json();
+        openModal(data, highlight);
+      } catch (err) {
+        addLog("doc fetch error");
+      }
+    }
+
+    async function showLlm(docId) {
+      const query = queryInput.value.trim();
+      if (!docId || !query) {
+        addLog("doc id or query missing");
+        return;
+      }
+      const prefix = baseUrl || "";
+      const url = `${prefix}/debug_review?doc_id=${encodeURIComponent(
+        docId
+      )}&query=${encodeURIComponent(query)}`;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          addLog(`llm debug failed: ${resp.status}`);
+          return;
+        }
+        const data = await resp.json();
+        openLlmModal(data);
+      } catch (err) {
+        addLog("llm debug error");
+      }
+    }
+
+    startBtn.addEventListener("click", () => {
+      const query = queryInput.value.trim();
+      if (!query) {
+        addLog("Please provide query.");
+        return;
       }
 
-      function resetUI() {
-        logEl.textContent = "";
-        cardsEl.textContent = "";
-        candidatesEl.textContent = "";
-        resultsCache = [];
-        termSearchCache = {};
-        termSearchesEl.textContent = "";
-        textReportEl.textContent = "";
-        copyReportBtn.disabled = true;
-      }
+      resetUI();
+      resolveBaseUrl();
+      setRunning(true);
 
-      function setRunning(isRunning) {
-        startBtn.disabled = isRunning;
-        stopBtn.disabled = !isRunning;
-      }
+      const url = `${endpoint}?query=${encodeURIComponent(query)}`;
+      source = new EventSource(url);
 
-      function resolveBaseUrl() {
+      source.addEventListener("log", (event) => {
+        addLog(event.data);
+      });
+      source.addEventListener("log_skip", (event) => {
+        addLog(event.data, "skip");
+      });
+      source.addEventListener("candidates", (event) => {
         try {
-          baseUrl = new URL(endpoint).origin;
+          const data = JSON.parse(event.data);
+          renderCandidates(data);
         } catch (err) {
-          baseUrl = "";
+          addLog("invalid candidates payload");
         }
-      }
-
-      function renderCandidates(items) {
-        if (!Array.isArray(items) || items.length === 0) {
-          candidatesEl.textContent = "No candidates.";
-          return;
-        }
-        const table = document.createElement("table");
-        const thead = document.createElement("thead");
-        thead.innerHTML =
-          "<tr><th>#</th><th>Title</th><th>Score</th><th>Raw</th><th>LLM</th></tr>";
-        table.appendChild(thead);
-        const tbody = document.createElement("tbody");
-        items.forEach((item, index) => {
-          const row = document.createElement("tr");
-          const title = item.title || "(untitled)";
-          const score = item.search_score ?? "-";
-          const id = item.id || "";
-          row.innerHTML = `<td>${index + 1}</td><td>${title}</td><td>${score}</td>`;
-          const rawCell = document.createElement("td");
-          const rawBtn = document.createElement("button");
-          rawBtn.className = "link-btn";
-          rawBtn.textContent = "View";
-          rawBtn.addEventListener("click", () => showDoc(id));
-          rawCell.appendChild(rawBtn);
-          row.appendChild(rawCell);
-          const llmCell = document.createElement("td");
-          const llmBtn = document.createElement("button");
-          llmBtn.className = "link-btn";
-          llmBtn.textContent = "LLM";
-          llmBtn.addEventListener("click", () => showLlm(id));
-          llmCell.appendChild(llmBtn);
-          row.appendChild(llmCell);
-          tbody.appendChild(row);
-        });
-        table.appendChild(tbody);
-        candidatesEl.textContent = "";
-        candidatesEl.appendChild(table);
-      }
-
-      function renderTermSearches() {
-        const terms = Object.keys(termSearchCache);
-        if (terms.length === 0) {
-          termSearchesEl.textContent = "No term searches.";
-          return;
-        }
-        const table = document.createElement("table");
-        const thead = document.createElement("thead");
-        thead.innerHTML = "<tr><th>Term</th><th>Count</th><th>Top 3</th></tr>";
-        table.appendChild(thead);
-        const tbody = document.createElement("tbody");
-        terms.forEach((term) => {
-          const entry = termSearchCache[term];
-          const row = document.createElement("tr");
-          const topPreview = (entry.top || [])
-            .map((item, idx) => `${idx + 1}.${item.title}[${item.search_score}]`)
-            .join(", ");
-          row.innerHTML = `<td>${term}</td><td>${entry.count}</td><td>${topPreview}</td>`;
-          tbody.appendChild(row);
-        });
-        table.appendChild(tbody);
-        termSearchesEl.textContent = "";
-        termSearchesEl.appendChild(table);
-      }
-
-      function setTextReport(text) {
-        textReportEl.textContent = text || "";
-        copyReportBtn.disabled = !text;
-      }
-
-      function escapeHtml(text) {
-        return text
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
-
-      function buildHighlightedContent(content, highlight) {
-        if (!content) {
-          return "";
-        }
-        let start = highlight?.start;
-        let end = highlight?.end;
-        const quote = highlight?.quote || "";
-        if (!(Number.isInteger(start) && Number.isInteger(end) && end > start)) {
-          if (quote) {
-            const found = content.indexOf(quote);
-            if (found !== -1) {
-              start = found;
-              end = found + quote.length;
-            }
-          }
-        }
-        if (Number.isInteger(start) && Number.isInteger(end) && end > start) {
-          return (
-            escapeHtml(content.slice(0, start)) +
-            "<mark>" +
-            escapeHtml(content.slice(start, end)) +
-            "</mark>" +
-            escapeHtml(content.slice(end))
-          );
-        }
-        return escapeHtml(content);
-      }
-
-      function openModal(doc, highlight) {
-        modalTitle.textContent = doc.title || "(untitled)";
-        modalMeta.textContent = doc.url ? doc.url : "";
-        modalQuestion.textContent = doc.question || "";
-        modalContent.innerHTML = buildHighlightedContent(doc.content || "", highlight);
-        modal.classList.add("active");
-        modal.setAttribute("aria-hidden", "false");
-      }
-
-      function closeModal() {
-        modal.classList.remove("active");
-        modal.setAttribute("aria-hidden", "true");
-      }
-
-      function openLlmModal(data) {
-        llmTitle.textContent = "LLM Debug";
-        const error = data.error ? ` | error: ${data.error}` : "";
-        llmMeta.textContent = `doc_id: ${data.doc_id} | query: ${data.query}${error}`;
-        const messages = data.payload?.messages || [];
-        const userMessage =
-          messages.find((msg) => msg.role === "user")?.content || "";
-        llmPrompt.textContent = userMessage;
-        llmPayload.textContent = JSON.stringify(data.payload || {}, null, 2);
-        llmResponse.textContent = JSON.stringify(data.response || {}, null, 2);
-        llmParsed.textContent = JSON.stringify(data.parsed || {}, null, 2);
-        llmModal.classList.add("active");
-        llmModal.setAttribute("aria-hidden", "false");
-      }
-
-      function closeLlmModal() {
-        llmModal.classList.remove("active");
-        llmModal.setAttribute("aria-hidden", "true");
-      }
-
-      async function showDoc(docId, highlight) {
-        if (!docId) {
-          addLog("doc id missing");
-          return;
-        }
-        const prefix = baseUrl || "";
-        const url = `${prefix}/doc/${encodeURIComponent(docId)}`;
-        try {
-          const resp = await fetch(url);
-          if (!resp.ok) {
-            addLog(`doc fetch failed: ${resp.status}`);
-            return;
-          }
-          const data = await resp.json();
-          openModal(data, highlight);
-        } catch (err) {
-          addLog("doc fetch error");
-        }
-      }
-
-      async function showLlm(docId) {
-        const query = queryInput.value.trim();
-        if (!docId || !query) {
-          addLog("doc id or query missing");
-          return;
-        }
-        const prefix = baseUrl || "";
-        const url = `${prefix}/debug_review?doc_id=${encodeURIComponent(
-          docId
-        )}&query=${encodeURIComponent(query)}`;
-        try {
-          const resp = await fetch(url);
-          if (!resp.ok) {
-            addLog(`llm debug failed: ${resp.status}`);
-            return;
-          }
-          const data = await resp.json();
-          openLlmModal(data);
-        } catch (err) {
-          addLog("llm debug error");
-        }
-      }
-
-      startBtn.addEventListener("click", () => {
-        const query = queryInput.value.trim();
-        if (!query) {
-          addLog("Please provide query.");
-          return;
-        }
-
-        resetUI();
-        resolveBaseUrl();
-        setRunning(true);
-
-        const url = `${endpoint}?query=${encodeURIComponent(query)}`;
-        source = new EventSource(url);
-
-        source.addEventListener("log", (event) => {
-          addLog(event.data);
-        });
-        source.addEventListener("log_skip", (event) => {
-          addLog(event.data, "skip");
-        });
-        source.addEventListener("candidates", (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            renderCandidates(data);
-          } catch (err) {
-            addLog("invalid candidates payload");
-          }
-        });
+      });
         source.addEventListener("term_search", (event) => {
           try {
             const data = JSON.parse(event.data);
             if (data.term) {
               termSearchCache[data.term] = data;
               renderTermSearches();
+              const topPreview = (data.top || [])
+                .map(
+                  (item, idx) =>
+                    `${idx + 1}.${item.title}[${item.search_score}]`
+                )
+                .join(", ");
+              addLog(
+                `term search: ${data.term} -> ${data.count} candidates | top: ${topPreview}`
+              );
             }
           } catch (err) {
             addLog("invalid term_search payload");
           }
         });
-        source.addEventListener("merge_summary", (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            addLog(
-              `merge summary: terms=${data.terms} total=${data.total} unique=${data.unique}`
-            );
-          } catch (err) {
-            addLog("invalid merge_summary payload");
-          }
-        });
-        source.addEventListener("card_found", (event) => {
-          addLog("hit: card_found", "hit");
-          try {
-            const data = JSON.parse(event.data);
-            resultsCache.push(data);
-            renderResults(resultsCache);
-          } catch (err) {
-            addLog("invalid card payload");
-          }
-        });
-        source.addEventListener("done", (event) => {
-          addLog("done", "hit");
-          try {
-            const data = JSON.parse(event.data);
-            if (Array.isArray(data.results)) {
-              resultsCache = data.results;
-              renderResults(resultsCache);
-            }
-            if (data.text_report) {
-              setTextReport(data.text_report);
-            }
-          } catch (err) {
-            addLog("invalid done payload");
-          }
-          if (source) {
-            source.close();
-            source = null;
-          }
-          setRunning(false);
-        });
-        source.addEventListener("error", () => {
-          addLog("connection error");
-          if (source) {
-            source.close();
-            source = null;
-          }
-          setRunning(false);
-        });
+      source.addEventListener("merge_summary", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          addLog(
+            `merge summary: terms=${data.terms} total=${data.total} unique=${data.unique}`
+          );
+        } catch (err) {
+          addLog("invalid merge_summary payload");
+        }
       });
-
-      stopBtn.addEventListener("click", () => {
+      source.addEventListener("card_found", (event) => {
+        addLog("hit: card_found", "hit");
+        try {
+          const data = JSON.parse(event.data);
+          resultsCache.push(data);
+          renderResults(resultsCache);
+        } catch (err) {
+          addLog("invalid card payload");
+        }
+      });
+      source.addEventListener("done", (event) => {
+        addLog("done", "hit");
+        try {
+          const data = JSON.parse(event.data);
+          if (Array.isArray(data.results)) {
+            resultsCache = data.results;
+            renderResults(resultsCache);
+          }
+          if (data.text_report) {
+            setTextReport(data.text_report);
+          }
+        } catch (err) {
+          addLog("invalid done payload");
+        }
         if (source) {
           source.close();
           source = null;
-          addLog("stopped");
         }
         setRunning(false);
       });
+      source.addEventListener("error", () => {
+        addLog("connection error");
+        if (source) {
+          source.close();
+          source = null;
+        }
+        setRunning(false);
+      });
+    });
 
-      copyReportBtn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(textReportEl.textContent);
-          addLog("text report copied");
-        } catch (err) {
-          addLog("copy failed");
-        }
-      });
 
-      modalClose.addEventListener("click", closeModal);
-      modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
-          closeModal();
-        }
-      });
-      llmClose.addEventListener("click", closeLlmModal);
-      llmModal.addEventListener("click", (event) => {
-        if (event.target === llmModal) {
-          closeLlmModal();
-        }
-      });
-    </script>
-  </body>
+    copyReportBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(textReportEl.textContent);
+        const originalText = copyReportBtn.textContent;
+        copyReportBtn.textContent = "Copied";
+        setTimeout(() => {
+          copyReportBtn.textContent = originalText;
+        }, 1200);
+        addLog("text report copied");
+      } catch (err) {
+        addLog("copy failed");
+      }
+    });
+
+    modalClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+    llmClose.addEventListener("click", closeLlmModal);
+    llmModal.addEventListener("click", (event) => {
+      if (event.target === llmModal) {
+        closeLlmModal();
+      }
+    });
+  </script>
+</body>
+
 </html>
