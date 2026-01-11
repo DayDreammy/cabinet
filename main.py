@@ -168,7 +168,7 @@ def stream_research(
     query: str = Query(..., min_length=1),
     top_k: int = Query(20, ge=1, le=50),
     max_workers: int = Query(100, ge=1, le=100),
-    score_threshold: float = Query(8.0, ge=0.0, le=10.0),
+    score_threshold: float = Query(5.0, ge=0.0, le=10.0),
     chat_url: str = Query(DEFAULT_CHAT_URL),
 ) -> StreamingResponse:
     def event_generator() -> Iterable[str]:
@@ -320,6 +320,7 @@ def stream_research(
                 error = result.get("error", "")
                 if quote and score >= score_threshold:
                     result["must_read"] = score >= 10
+                    result["tier"] = "core" if score >= 8 else "extended"
                     hits.append(result)
                     quote_len = len(quote)
                     msg = (
