@@ -32,7 +32,7 @@
       }
       .controls {
         display: grid;
-        grid-template-columns: 1fr 1fr 160px;
+        grid-template-columns: 1fr 160px;
         gap: 12px;
         align-items: end;
         margin-bottom: 16px;
@@ -273,6 +273,11 @@
         border-radius: 8px;
         border: 1px solid #e3e6ee;
       }
+      .modal mark {
+        background: #fde68a;
+        padding: 0 2px;
+        border-radius: 4px;
+      }
       .footer {
         margin-top: 12px;
         font-size: 12px;
@@ -296,14 +301,6 @@
           <div>
             <label for="query">Query</label>
             <input id="query" type="text" value="love" />
-          </div>
-          <div>
-            <label for="endpoint">SSE Endpoint</label>
-            <input
-              id="endpoint"
-              type="text"
-              value="http://127.0.0.1:8001/stream_research"
-            />
           </div>
           <div>
             <button id="start" class="btn">Start</button>
@@ -376,7 +373,7 @@
 
     <script>
       const queryInput = document.getElementById("query");
-      const endpointInput = document.getElementById("endpoint");
+      const endpoint = "http://127.0.0.1:8002/stream_research";
       const startBtn = document.getElementById("start");
       const stopBtn = document.getElementById("stop");
       const logEl = document.getElementById("log");
@@ -446,6 +443,17 @@
             link.href = result.url || "#";
             link.textContent = "Open source";
             link.target = "_blank";
+            const viewBtn = document.createElement("button");
+            viewBtn.className = "link-btn";
+            viewBtn.textContent = "View";
+            viewBtn.addEventListener("click", (event) => {
+              event.stopPropagation();
+              showDoc(result.id, {
+                start: result.quote_start,
+                end: result.quote_end,
+                quote: result.quote,
+              });
+            });
 
             const header = document.createElement("div");
             header.className = "card-header";
@@ -456,7 +464,14 @@
             card.appendChild(header);
             card.appendChild(quote);
             card.appendChild(meta);
-            card.appendChild(link);
+            const actions = document.createElement("div");
+            actions.className = "meta";
+            actions.style.display = "flex";
+            actions.style.gap = "8px";
+            actions.style.alignItems = "center";
+            actions.appendChild(viewBtn);
+            actions.appendChild(link);
+            card.appendChild(actions);
             cardsEl.appendChild(card);
           });
       }
@@ -478,7 +493,6 @@
       }
 
       function resolveBaseUrl() {
-        const endpoint = endpointInput.value.trim();
         try {
           baseUrl = new URL(endpoint).origin;
         } catch (err) {
@@ -554,11 +568,48 @@
         copyReportBtn.disabled = !text;
       }
 
-      function openModal(doc) {
+      function escapeHtml(text) {
+        return text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function buildHighlightedContent(content, highlight) {
+        if (!content) {
+          return "";
+        }
+        let start = highlight?.start;
+        let end = highlight?.end;
+        const quote = highlight?.quote || "";
+        if (!(Number.isInteger(start) && Number.isInteger(end) && end > start)) {
+          if (quote) {
+            const found = content.indexOf(quote);
+            if (found !== -1) {
+              start = found;
+              end = found + quote.length;
+            }
+          }
+        }
+        if (Number.isInteger(start) && Number.isInteger(end) && end > start) {
+          return (
+            escapeHtml(content.slice(0, start)) +
+            "<mark>" +
+            escapeHtml(content.slice(start, end)) +
+            "</mark>" +
+            escapeHtml(content.slice(end))
+          );
+        }
+        return escapeHtml(content);
+      }
+
+      function openModal(doc, highlight) {
         modalTitle.textContent = doc.title || "(untitled)";
         modalMeta.textContent = doc.url ? doc.url : "";
         modalQuestion.textContent = doc.question || "";
-        modalContent.textContent = doc.content || "";
+        modalContent.innerHTML = buildHighlightedContent(doc.content || "", highlight);
         modal.classList.add("active");
         modal.setAttribute("aria-hidden", "false");
       }
@@ -588,7 +639,7 @@
         llmModal.setAttribute("aria-hidden", "true");
       }
 
-      async function showDoc(docId) {
+      async function showDoc(docId, highlight) {
         if (!docId) {
           addLog("doc id missing");
           return;
@@ -602,7 +653,7 @@
             return;
           }
           const data = await resp.json();
-          openModal(data);
+          openModal(data, highlight);
         } catch (err) {
           addLog("doc fetch error");
         }
@@ -633,9 +684,8 @@
 
       startBtn.addEventListener("click", () => {
         const query = queryInput.value.trim();
-        const endpoint = endpointInput.value.trim();
-        if (!query || !endpoint) {
-          addLog("Please provide query and endpoint.");
+        if (!query) {
+          addLog("Please provide query.");
           return;
         }
 
