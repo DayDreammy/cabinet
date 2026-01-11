@@ -316,6 +316,7 @@
 
       let source = null;
       let baseUrl = "";
+      let resultsCache = [];
 
       function addLog(message, className) {
         const line = document.createElement("div");
@@ -327,32 +328,39 @@
         logEl.scrollTop = logEl.scrollHeight;
       }
 
-      function addCard(result) {
-        const card = document.createElement("div");
-        card.className = "card";
-        const title = document.createElement("h3");
-        title.textContent = result.title || "(untitled)";
-        const quote = document.createElement("p");
-        quote.textContent = result.quote || "";
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.textContent = `score: ${result.score} | offset: ${result.quote_start}-${result.quote_end}`;
-        const link = document.createElement("a");
-        link.href = result.url || "#";
-        link.textContent = "Open source";
-        link.target = "_blank";
+      function renderResults(items) {
+        cardsEl.textContent = "";
+        items
+          .slice()
+          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .forEach((result) => {
+            const card = document.createElement("div");
+            card.className = "card";
+            const title = document.createElement("h3");
+            title.textContent = result.title || "(untitled)";
+            const quote = document.createElement("p");
+            quote.textContent = result.quote || "";
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            meta.textContent = `score: ${result.score} | offset: ${result.quote_start}-${result.quote_end}`;
+            const link = document.createElement("a");
+            link.href = result.url || "#";
+            link.textContent = "Open source";
+            link.target = "_blank";
 
-        card.appendChild(title);
-        card.appendChild(quote);
-        card.appendChild(meta);
-        card.appendChild(link);
-        cardsEl.appendChild(card);
+            card.appendChild(title);
+            card.appendChild(quote);
+            card.appendChild(meta);
+            card.appendChild(link);
+            cardsEl.appendChild(card);
+          });
       }
 
       function resetUI() {
         logEl.textContent = "";
         cardsEl.textContent = "";
         candidatesEl.textContent = "";
+        resultsCache = [];
       }
 
       function setRunning(isRunning) {
@@ -517,7 +525,8 @@
           addLog("hit: card_found", "hit");
           try {
             const data = JSON.parse(event.data);
-            addCard(data);
+            resultsCache.push(data);
+            renderResults(resultsCache);
           } catch (err) {
             addLog("invalid card payload");
           }
@@ -527,7 +536,8 @@
           try {
             const data = JSON.parse(event.data);
             if (Array.isArray(data.results)) {
-              data.results.forEach(addCard);
+              resultsCache = data.results;
+              renderResults(resultsCache);
             }
           } catch (err) {
             addLog("invalid done payload");
