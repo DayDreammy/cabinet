@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cabinet MVP Test</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f6f7fb;
+        color: #1f2430;
+      }
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 16px;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #e3e6ee;
+        border-radius: 10px;
+        padding: 16px;
+        box-shadow: 0 8px 24px rgba(31, 36, 48, 0.08);
+      }
+      .controls {
+        display: grid;
+        grid-template-columns: 1fr 160px;
+        gap: 12px;
+        align-items: end;
+        margin-bottom: 16px;
+      }
+      .controls label {
+        font-size: 12px;
+        color: #5a6270;
+        display: block;
+        margin-bottom: 6px;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #cfd6e2;
+        font-size: 14px;
+      }
+      .btn {
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #1f2430;
+        background: #1f2430;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .btn.secondary {
+        background: #fff;
+        color: #1f2430;
+      }
+      .btn[disabled] {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .section-title {
+        font-size: 13px;
+        color: #5a6270;
+        margin: 0 0 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .log {
+        height: 360px;
+        overflow: auto;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      .log .skip {
+        color: #94a3b8;
+      }
+      .log .hit {
+        color: #22c55e;
+      }
+      .cards {
+        display: grid;
+        gap: 12px;
+      }
+      .card {
+        border: 1px solid #e3e6ee;
+        border-radius: 10px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .card p {
+        margin: 0 0 8px;
+        font-size: 13px;
+      }
+      .card a {
+        color: #2563eb;
+        text-decoration: none;
+      }
+      .meta {
+        font-size: 12px;
+        color: #64748b;
+      }
+      .footer {
+        margin-top: 12px;
+        font-size: 12px;
+        color: #64748b;
+      }
+      @media (max-width: 900px) {
+        .controls {
+          grid-template-columns: 1fr;
+        }
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Cabinet MVP Test</h1>
+      <div class="panel">
+        <div class="controls">
+          <div>
+            <label for="query">Query</label>
+            <input id="query" type="text" value="love" />
+          </div>
+          <div>
+            <label for="endpoint">SSE Endpoint</label>
+            <input id="endpoint" type="text" value="http://127.0.0.1:8001/stream_research" />
+          </div>
+          <div>
+            <button id="start" class="btn">Start</button>
+            <button id="stop" class="btn secondary" disabled>Stop</button>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <div class="section-title">Logs</div>
+            <div id="log" class="log"></div>
+          </div>
+          <div>
+            <div class="section-title">Results</div>
+            <div id="cards" class="cards"></div>
+          </div>
+        </div>
+        <div class="footer">
+          Start the backend first: python -m uvicorn main:app --host 127.0.0.1 --port 8001
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const queryInput = document.getElementById("query");
+      const endpointInput = document.getElementById("endpoint");
+      const startBtn = document.getElementById("start");
+      const stopBtn = document.getElementById("stop");
+      const logEl = document.getElementById("log");
+      const cardsEl = document.getElementById("cards");
+
+      let source = null;
+
+      function addLog(message, className) {
+        const line = document.createElement("div");
+        line.textContent = message;
+        if (className) {
+          line.classList.add(className);
+        }
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function addCard(result) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const title = document.createElement("h3");
+        title.textContent = result.title || "(untitled)";
+        const quote = document.createElement("p");
+        quote.textContent = result.quote || "";
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = `score: ${result.score} | offset: ${result.quote_start}-${result.quote_end}`;
+        const link = document.createElement("a");
+        link.href = result.url || "#";
+        link.textContent = "Open source";
+        link.target = "_blank";
+
+        card.appendChild(title);
+        card.appendChild(quote);
+        card.appendChild(meta);
+        card.appendChild(link);
+        cardsEl.appendChild(card);
+      }
+
+      function resetUI() {
+        logEl.textContent = "";
+        cardsEl.textContent = "";
+      }
+
+      function setRunning(isRunning) {
+        startBtn.disabled = isRunning;
+        stopBtn.disabled = !isRunning;
+      }
+
+      startBtn.addEventListener("click", () => {
+        const query = queryInput.value.trim();
+        const endpoint = endpointInput.value.trim();
+        if (!query || !endpoint) {
+          addLog("Please provide query and endpoint.");
+          return;
+        }
+
+        resetUI();
+        setRunning(true);
+
+        const url = `${endpoint}?query=${encodeURIComponent(query)}`;
+        source = new EventSource(url);
+
+        source.addEventListener("log", (event) => {
+          addLog(event.data);
+        });
+        source.addEventListener("log_skip", (event) => {
+          addLog(event.data, "skip");
+        });
+        source.addEventListener("card_found", (event) => {
+          addLog("hit: card_found", "hit");
+          try {
+            const data = JSON.parse(event.data);
+            addCard(data);
+          } catch (err) {
+            addLog("invalid card payload");
+          }
+        });
+        source.addEventListener("done", (event) => {
+          addLog("done", "hit");
+          try {
+            const data = JSON.parse(event.data);
+            if (Array.isArray(data.results)) {
+              data.results.forEach(addCard);
+            }
+          } catch (err) {
+            addLog("invalid done payload");
+          }
+          if (source) {
+            source.close();
+            source = null;
+          }
+          setRunning(false);
+        });
+        source.addEventListener("error", () => {
+          addLog("connection error");
+          if (source) {
+            source.close();
+            source = null;
+          }
+          setRunning(false);
+        });
+      });
+
+      stopBtn.addEventListener("click", () => {
+        if (source) {
+          source.close();
+          source = null;
+          addLog("stopped");
+        }
+        setRunning(false);
+      });
+    </script>
+  </body>
+</html>
