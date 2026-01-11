@@ -62,6 +62,39 @@ def _log(message: str) -> None:
     LOGGER.info(message)
 
 
+def _build_text_report(items: List[Dict[str, Any]]) -> str:
+    def sort_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return sorted(rows, key=lambda item: item.get("score", 0), reverse=True)
+
+    sections = [
+        ("推荐先阅读", sort_items([i for i in items if i.get("score", 0) >= 10])),
+        (
+            "推荐阅读",
+            sort_items([i for i in items if 8 <= i.get("score", 0) < 10]),
+        ),
+        (
+            "扩展阅读",
+            sort_items([i for i in items if 5 <= i.get("score", 0) < 8])[:10],
+        ),
+    ]
+
+    lines: List[str] = []
+    for name, rows in sections:
+        lines.append(name)
+        if rows:
+            for row in rows:
+                title = row.get("title", "")
+                quote = row.get("quote", "")
+                url = row.get("url", "")
+                lines.append(title)
+                lines.append(quote)
+                lines.append(url)
+                lines.append("")
+        else:
+            lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
 def _merge_candidates(candidate_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged: Dict[str, Dict[str, Any]] = {}
     for candidates in candidate_lists:
@@ -346,6 +379,7 @@ def stream_research(
 
         hits.sort(key=lambda item: item.get("score", 0), reverse=True)
         final_hits = hits
+        text_report = _build_text_report(final_hits)
         msg = f"hits: {len(hits)}, return: {len(final_hits)}"
         _log(msg)
         yield _format_sse("log", msg)
@@ -359,6 +393,7 @@ def stream_research(
                 "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "elapsed_sec": elapsed,
                 "results": final_hits,
+                "text_report": text_report,
             },
         )
 

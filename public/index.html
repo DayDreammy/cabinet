@@ -164,6 +164,28 @@
         border-radius: 10px;
         padding: 12px;
       }
+      .text-report {
+        margin-top: 16px;
+        background: #fff;
+        border: 1px solid #e3e6ee;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .text-report pre {
+        background: #f8fafc;
+        border: 1px solid #e3e6ee;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+      .text-report .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
       .candidates table {
         width: 100%;
         border-collapse: collapse;
@@ -306,6 +328,13 @@
           <div class="section-title">Term Searches (Debug)</div>
           <div id="term-searches"></div>
         </div>
+        <div class="text-report">
+          <div class="toolbar">
+            <div class="section-title">Text Answer</div>
+            <button id="copy-report" class="link-btn" disabled>Copy</button>
+          </div>
+          <pre id="text-report"></pre>
+        </div>
         <div class="footer">
           Start the backend first: python -m uvicorn main:app --host 127.0.0.1
           --port 8001
@@ -354,6 +383,8 @@
       const cardsEl = document.getElementById("cards");
       const candidatesEl = document.getElementById("candidates");
       const termSearchesEl = document.getElementById("term-searches");
+      const textReportEl = document.getElementById("text-report");
+      const copyReportBtn = document.getElementById("copy-report");
       const modal = document.getElementById("modal");
       const modalTitle = document.getElementById("modal-title");
       const modalMeta = document.getElementById("modal-meta");
@@ -404,7 +435,7 @@
             if (result.score >= 10) {
               tag.textContent = "推荐先阅读";
               tag.classList.add("tag-primary");
-            } else if (result.score >= 7) {
+            } else if (result.score >= 8) {
               tag.textContent = "推荐阅读";
               tag.classList.add("tag-secondary");
             } else if (result.score >= 5) {
@@ -437,6 +468,8 @@
         resultsCache = [];
         termSearchCache = {};
         termSearchesEl.textContent = "";
+        textReportEl.textContent = "";
+        copyReportBtn.disabled = true;
       }
 
       function setRunning(isRunning) {
@@ -514,6 +547,11 @@
         table.appendChild(tbody);
         termSearchesEl.textContent = "";
         termSearchesEl.appendChild(table);
+      }
+
+      function setTextReport(text) {
+        textReportEl.textContent = text || "";
+        copyReportBtn.disabled = !text;
       }
 
       function openModal(doc) {
@@ -661,6 +699,9 @@
               resultsCache = data.results;
               renderResults(resultsCache);
             }
+            if (data.text_report) {
+              setTextReport(data.text_report);
+            }
           } catch (err) {
             addLog("invalid done payload");
           }
@@ -687,6 +728,15 @@
           addLog("stopped");
         }
         setRunning(false);
+      });
+
+      copyReportBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(textReportEl.textContent);
+          addLog("text report copied");
+        } catch (err) {
+          addLog("copy failed");
+        }
       });
 
       modalClose.addEventListener("click", closeModal);
