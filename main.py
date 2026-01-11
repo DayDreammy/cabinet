@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,6 +19,8 @@ app = FastAPI()
 
 DOCS: List[Dict[str, Any]] = []
 PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "public")
+LOGGER = logging.getLogger("cabinet")
+LOGGER.setLevel(logging.INFO)
 
 if os.path.isdir(PUBLIC_DIR):
     app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="public")
@@ -46,6 +49,10 @@ def _format_sse(event: str, data: Any) -> str:
     return "".join(formatted)
 
 
+def _log(message: str) -> None:
+    LOGGER.info(message)
+
+
 @app.get("/stream_research")
 def stream_research(
     query: str = Query(..., min_length=1),
@@ -56,35 +63,41 @@ def stream_research(
 ) -> StreamingResponse:
     def event_generator() -> Iterable[str]:
         started = time.time()
-        yield _format_sse("log", f"search start: {query}")
+        msg = f"search start: {query}"
+        _log(msg)
+        yield _format_sse("log", msg)
         tokens = tokenize_query(query)
-        yield _format_sse("log", f"query tokens ({len(tokens)}): {tokens}")
-        yield _format_sse(
-            "log",
-            (
-                "weights: "
-                f"title={WEIGHTS['title']} "
-                f"question={WEIGHTS['question']} "
-                f"content={WEIGHTS['content']}"
-            ),
+        msg = f"query tokens ({len(tokens)}): {tokens}"
+        _log(msg)
+        yield _format_sse("log", msg)
+        msg = (
+            "weights: "
+            f"title={WEIGHTS['title']} "
+            f"question={WEIGHTS['question']} "
+            f"content={WEIGHTS['content']}"
         )
+        _log(msg)
+        yield _format_sse("log", msg)
 
         candidates = search_db(DOCS, query, top_k=top_k)
-        yield _format_sse(
-            "log",
-            f"search done: {len(candidates)} candidates, start review",
-        )
+        msg = f"search done: {len(candidates)} candidates, start review"
+        _log(msg)
+        yield _format_sse("log", msg)
         if candidates:
             preview = ", ".join(
                 f"{idx + 1}.{item.get('title', '(untitled)')}[{item.get('search_score', 0):.1f}]"
                 for idx, item in enumerate(candidates[:5])
             )
-            yield _format_sse("log", f"top candidates: {preview}")
+            msg = f"top candidates: {preview}"
+            _log(msg)
+            yield _format_sse("log", msg)
 
         hits: List[Dict[str, Any]] = []
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            yield _format_sse("log", f"review threads: {max_workers}")
+            msg = f"review threads: {max_workers}"
+            _log(msg)
+            yield _format_sse("log", msg)
             futures = [executor.submit(review_doc, doc, query, chat_url) for doc in candidates]
 
             for future in as_completed(futures):
@@ -95,36 +108,39 @@ def stream_research(
                 if quote and score >= score_threshold:
                     hits.append(result)
                     quote_len = len(quote)
-                    yield _format_sse(
-                        "log",
-                        (
-                            "hit: "
-                            f"{result.get('title', '(unknown)')} "
-                            f"score={score:.1f} "
-                            f"quote_len={quote_len}"
-                        ),
+                    msg = (
+                        "hit: "
+                        f"{result.get('title', '(unknown)')} "
+                        f"score={score:.1f} "
+                        f"quote_len={quote_len}"
                     )
+                    _log(msg)
+                    yield _format_sse("log", msg)
+                    _log("hit: card_found")
                     yield _format_sse("card_found", result)
                 else:
                     title = result.get("title", "(unknown)")
                     if error:
-                        yield _format_sse("log_skip", f"skip: {title} (error: {error})")
+                        msg = f"skip: {title} (error: {error})"
+                        _log(msg)
+                        yield _format_sse("log_skip", msg)
                     elif not quote:
-                        yield _format_sse(
-                            "log_skip",
-                            f"skip: {title} (no quote, score={score:.1f})",
-                        )
+                        msg = f"skip: {title} (no quote, score={score:.1f})"
+                        _log(msg)
+                        yield _format_sse("log_skip", msg)
                     else:
-                        yield _format_sse(
-                            "log_skip",
-                            f"skip: {title} (score={score:.1f} < {score_threshold})",
-                        )
+                        msg = f"skip: {title} (score={score:.1f} < {score_threshold})"
+                        _log(msg)
+                        yield _format_sse("log_skip", msg)
 
         hits.sort(key=lambda item: item.get("score", 0), reverse=True)
         final_hits = hits[:8]
-        yield _format_sse("log", f"hits: {len(hits)}, return: {len(final_hits)}")
+        msg = f"hits: {len(hits)}, return: {len(final_hits)}"
+        _log(msg)
+        yield _format_sse("log", msg)
 
         elapsed = round(time.time() - started, 2)
+        _log("done")
         yield _format_sse(
             "done",
             {
