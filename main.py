@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import StreamingResponse
@@ -24,6 +25,12 @@ from review import (
 from search import DEFAULT_DB_PATH, WEIGHTS, load_db, search_db, tokenize_query
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DOCS: List[Dict[str, Any]] = []
 DOCS_BY_ID: Dict[str, Dict[str, Any]] = {}

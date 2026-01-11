@@ -439,7 +439,7 @@
 
   <script>
     const queryInput = document.getElementById("query");
-    const endpoint = "http://127.0.0.1:8002/stream_research";
+    const endpoint = "/stream_research";
     const startBtn = document.getElementById("start");
     const logEl = document.getElementById("log");
     const cardsEl = document.getElementById("cards");
@@ -554,9 +554,9 @@
 
     function resolveBaseUrl() {
       try {
-        baseUrl = new URL(endpoint).origin;
+        baseUrl = new URL(endpoint, window.location.origin).origin;
       } catch (err) {
-        baseUrl = "";
+        baseUrl = window.location.origin || "";
       }
     }
 
