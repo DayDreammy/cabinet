@@ -110,6 +110,34 @@
         margin: 0 0 6px;
         font-size: 15px;
       }
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .tag {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }
+      .tag-primary {
+        color: #065f46;
+        background: #d1fae5;
+        border-color: #6ee7b7;
+      }
+      .tag-secondary {
+        color: #1d4ed8;
+        background: #dbeafe;
+        border-color: #93c5fd;
+      }
+      .tag-muted {
+        color: #475569;
+        background: #e2e8f0;
+        border-color: #cbd5e1;
+      }
       .card p {
         margin: 0 0 8px;
         font-size: 13px;
@@ -371,12 +399,30 @@
             const meta = document.createElement("div");
             meta.className = "meta";
             meta.textContent = `score: ${result.score} | offset: ${result.quote_start}-${result.quote_end}`;
+            const tag = document.createElement("span");
+            tag.className = "tag";
+            if (result.score >= 10) {
+              tag.textContent = "推荐先阅读";
+              tag.classList.add("tag-primary");
+            } else if (result.score >= 7) {
+              tag.textContent = "推荐阅读";
+              tag.classList.add("tag-secondary");
+            } else if (result.score >= 5) {
+              tag.textContent = "扩展阅读";
+              tag.classList.add("tag-muted");
+            }
             const link = document.createElement("a");
             link.href = result.url || "#";
             link.textContent = "Open source";
             link.target = "_blank";
 
-            card.appendChild(title);
+            const header = document.createElement("div");
+            header.className = "card-header";
+            header.appendChild(title);
+            if (tag.textContent) {
+              header.appendChild(tag);
+            }
+            card.appendChild(header);
             card.appendChild(quote);
             card.appendChild(meta);
             card.appendChild(link);
