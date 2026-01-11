@@ -129,7 +129,19 @@
         border-radius: 10px;
         padding: 12px;
       }
+      .term-searches {
+        margin-top: 16px;
+        background: #fff;
+        border: 1px solid #e3e6ee;
+        border-radius: 10px;
+        padding: 12px;
+      }
       .candidates table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .term-searches table {
         width: 100%;
         border-collapse: collapse;
         font-size: 12px;
@@ -140,7 +152,17 @@
         border-bottom: 1px solid #e3e6ee;
         text-align: left;
       }
+      .term-searches th,
+      .term-searches td {
+        padding: 8px 6px;
+        border-bottom: 1px solid #e3e6ee;
+        text-align: left;
+      }
       .candidates th {
+        color: #5a6270;
+        font-weight: 600;
+      }
+      .term-searches th {
         color: #5a6270;
         font-weight: 600;
       }
@@ -252,6 +274,10 @@
           <div class="section-title">Candidates (Debug)</div>
           <div id="candidates"></div>
         </div>
+        <div class="term-searches">
+          <div class="section-title">Term Searches (Debug)</div>
+          <div id="term-searches"></div>
+        </div>
         <div class="footer">
           Start the backend first: python -m uvicorn main:app --host 127.0.0.1
           --port 8001
@@ -299,6 +325,7 @@
       const logEl = document.getElementById("log");
       const cardsEl = document.getElementById("cards");
       const candidatesEl = document.getElementById("candidates");
+      const termSearchesEl = document.getElementById("term-searches");
       const modal = document.getElementById("modal");
       const modalTitle = document.getElementById("modal-title");
       const modalMeta = document.getElementById("modal-meta");
@@ -317,6 +344,7 @@
       let source = null;
       let baseUrl = "";
       let resultsCache = [];
+      let termSearchCache = {};
 
       function addLog(message, className) {
         const line = document.createElement("div");
@@ -361,6 +389,8 @@
         cardsEl.textContent = "";
         candidatesEl.textContent = "";
         resultsCache = [];
+        termSearchCache = {};
+        termSearchesEl.textContent = "";
       }
 
       function setRunning(isRunning) {
@@ -413,6 +443,31 @@
         table.appendChild(tbody);
         candidatesEl.textContent = "";
         candidatesEl.appendChild(table);
+      }
+
+      function renderTermSearches() {
+        const terms = Object.keys(termSearchCache);
+        if (terms.length === 0) {
+          termSearchesEl.textContent = "No term searches.";
+          return;
+        }
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        thead.innerHTML = "<tr><th>Term</th><th>Count</th><th>Top 3</th></tr>";
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        terms.forEach((term) => {
+          const entry = termSearchCache[term];
+          const row = document.createElement("tr");
+          const topPreview = (entry.top || [])
+            .map((item, idx) => `${idx + 1}.${item.title}[${item.search_score}]`)
+            .join(", ");
+          row.innerHTML = `<td>${term}</td><td>${entry.count}</td><td>${topPreview}</td>`;
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        termSearchesEl.textContent = "";
+        termSearchesEl.appendChild(table);
       }
 
       function openModal(doc) {
@@ -519,6 +574,27 @@
             renderCandidates(data);
           } catch (err) {
             addLog("invalid candidates payload");
+          }
+        });
+        source.addEventListener("term_search", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.term) {
+              termSearchCache[data.term] = data;
+              renderTermSearches();
+            }
+          } catch (err) {
+            addLog("invalid term_search payload");
+          }
+        });
+        source.addEventListener("merge_summary", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            addLog(
+              `merge summary: terms=${data.terms} total=${data.total} unique=${data.unique}`
+            );
+          } catch (err) {
+            addLog("invalid merge_summary payload");
           }
         });
         source.addEventListener("card_found", (event) => {

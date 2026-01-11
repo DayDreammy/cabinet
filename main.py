@@ -213,12 +213,28 @@ def stream_research(
         for term in search_terms:
             term_candidates = search_db(DOCS, term, top_k=top_k)
             candidate_lists.append(term_candidates)
+            term_preview = [
+                {
+                    "id": str(item.get("id", "")),
+                    "title": item.get("title", ""),
+                    "search_score": round(float(item.get("search_score", 0)), 2),
+                }
+                for item in term_candidates[:3]
+            ]
             preview = ", ".join(
                 f"{idx + 1}.{item.get('title', '(untitled)')}[{item.get('search_score', 0):.1f}]"
                 for idx, item in enumerate(term_candidates[:3])
             )
             _log(
                 f"term search: {term} -> {len(term_candidates)} candidates | top: {preview}"
+            )
+            yield _format_sse(
+                "term_search",
+                {
+                    "term": term,
+                    "count": len(term_candidates),
+                    "top": term_preview,
+                },
             )
 
         candidates = (
@@ -231,6 +247,14 @@ def stream_research(
             _log(
                 "merge summary: "
                 f"terms={len(search_terms)} total={total} unique={len(candidates)}"
+            )
+            yield _format_sse(
+                "merge_summary",
+                {
+                    "terms": len(search_terms),
+                    "total": total,
+                    "unique": len(candidates),
+                },
             )
         msg = f"search done: {len(candidates)} candidates, start review"
         _log(msg)
