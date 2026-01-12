@@ -1,0 +1,23 @@
+[
+  {
+    "id": "love-calm-conflict",
+    "query": "恋人在争吵后的冷静期，适合做些什么？",
+    "top_k": 5,
+    "max_workers": 5,
+    "score_threshold": 5.0
+  },
+  {
+    "id": "career-switch",
+    "query": "从大厂转去创业公司，应该评估哪些关键风险？",
+    "top_k": 5,
+    "max_workers": 5,
+    "score_threshold": 5.0
+  },
+  {
+    "id": "learning-loop",
+    "query": "学习一门新技能时，如何建立有效的反馈闭环？",
+    "top_k": 5,
+    "max_workers": 5,
+    "score_threshold": 5.0
+  }
+]
