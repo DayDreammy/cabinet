@@ -36,6 +36,7 @@ SCORE_RECOMMEND = 8.0
 SCORE_MUST = 10.0
 EXTENDED_LIMIT = 10
 DOCS: list[dict[str, Any]] = []
+DOCS_BY_ID: dict[str, dict[str, Any]] = {}
 
 
 class HelloResponse(BaseModel):
@@ -101,6 +102,14 @@ class CabinetSearchRequest(BaseModel):
         extra = "allow"
 
 
+class CabinetFullTextRequest(BaseModel):
+    doc_id: str = Field(..., alias="id", min_length=1, example="123")
+
+    class Config:
+        allow_population_by_field_name = True
+        extra = "allow"
+
+
 app = FastAPI(
     title="Demo FastAPI",
     description=(
@@ -126,8 +135,13 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.on_event("startup")
 def load_cabinet_docs() -> None:
-    global DOCS
+    global DOCS, DOCS_BY_ID
     DOCS = load_db(DEFAULT_DB_PATH)
+    DOCS_BY_ID = {}
+    for doc in DOCS:
+        doc_id = doc.get("id")
+        if doc_id is not None:
+            DOCS_BY_ID[str(doc_id)] = doc
 
 
 @app.get("/", include_in_schema=False)
@@ -323,6 +337,23 @@ async def chat_completions(
                                 },
                             },
                             "required": ["query"],
+                        },
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cabinet_full_text",
+                        "description": "Fetch the full cabinet JSON item by id.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": "Document id to fetch.",
+                                }
+                            },
+                            "required": ["id"],
                         },
                     },
                 },
@@ -544,6 +575,27 @@ async def cabinet_search_internal(payload_dict: dict[str, Any]) -> dict[str, Any
 
 
 @app.post(
+    "/cabinet_full_text",
+    summary="Cabinet full text tool",
+    description="Fetches a cabinet JSON item by id.",
+    response_model=None,
+    tags=["tools"],
+)
+async def cabinet_full_text(payload: CabinetFullTextRequest) -> Response:
+    result = await cabinet_full_text_internal(payload.doc_id)
+    return JSONResponse(status_code=result["status_code"], content=result["data"])
+
+
+async def cabinet_full_text_internal(doc_id: str) -> dict[str, Any]:
+    doc = DOCS_BY_ID.get(str(doc_id))
+    if not doc:
+        return {"status_code": 404, "data": {"detail": "doc not found"}}
+    data = dict(doc)
+    data.pop("_token_counts", None)
+    return {"status_code": 200, "data": data}
+
+
+@app.post(
     "/read_page",
     summary="Read page proxy",
     description="Fetches a URL and extracts the main text content.",
@@ -608,6 +660,8 @@ async def build_tool_calls(
             display_name = "web_search"
         elif function_name in {"cabinet_search"}:
             display_name = "cabinet_search"
+        elif function_name in {"cabinet_full_text"}:
+            display_name = "cabinet_full_text"
         elif function_name in {"read_page"}:
             display_name = "read_page"
         else:
@@ -651,6 +705,13 @@ async def build_tool_calls(
                 arguments["score_threshold"] = SCORE_MIN
             if "max_keywords" not in arguments or arguments["max_keywords"] is None:
                 arguments["max_keywords"] = 10
+        elif display_name == "cabinet_full_text":
+            if not arguments.get("id"):
+                if arguments.get("doc_id"):
+                    arguments["id"] = arguments.get("doc_id")
+                else:
+                    logger.info("agentic: tool arguments missing id.")
+                    continue
         elif display_name == "read_page":
             if not arguments.get("url"):
                 logger.info("agentic: tool arguments missing url.")
@@ -705,6 +766,22 @@ async def build_tool_calls(
             tasks.append(
                 asyncio.create_task(
                     cabinet_search_internal(arguments)
+                )
+            )
+        elif display_name == "cabinet_full_text":
+            logger.info(
+                "[Agent] Decided to call tool: '%s' id='%s'",
+                display_name,
+                truncate_query(arguments.get("id")),
+            )
+            logger.info(
+                "agentic: calling tool=%s via /cabinet_full_text args=%s",
+                display_name,
+                json.dumps(arguments, ensure_ascii=False),
+            )
+            tasks.append(
+                asyncio.create_task(
+                    cabinet_full_text_internal(arguments.get("id", ""))
                 )
             )
         elif display_name == "read_page":
@@ -916,6 +993,8 @@ def truncate_tool_output(tool_name: str, output: str) -> str:
         return truncate_read_page_content(output)
     if tool_name == "cabinet_search":
         return truncate_cabinet_search_output(output)
+    if tool_name == "cabinet_full_text":
+        return truncate_cabinet_full_text_output(output)
     text = output.strip().replace("\n", " ")
     return text if len(text) <= 200 else f"{text[:200]}…"
 
@@ -940,6 +1019,23 @@ def truncate_cabinet_search_output(output: str, limit: int = 200) -> str:
         summary = f"{summary} top={title}"
     if score is not None:
         summary = f"{summary} score={score}"
+    return summary if len(summary) <= limit else f"{summary[:limit]}…"
+
+
+def truncate_cabinet_full_text_output(output: str, limit: int = 200) -> str:
+    if not output:
+        return ""
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        text = output.strip().replace("\n", " ")
+        return text if len(text) <= limit else f"{text[:limit]}…"
+
+    doc_id = data.get("id")
+    title = data.get("title") or ""
+    summary = f"id={doc_id}" if doc_id is not None else "id="
+    if title:
+        summary = f"{summary} title={title}"
     return summary if len(summary) <= limit else f"{summary[:limit]}…"
 
 
