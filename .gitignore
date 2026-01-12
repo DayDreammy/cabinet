@@ -23,3 +23,6 @@ ENV/
 
 dist/
 build/
+
+data/*.json
+!data/ps_2026-01-07.json
