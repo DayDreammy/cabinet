@@ -122,6 +122,12 @@ def main() -> None:
         default="",
         help="Optional output JSON file to store results.",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=1,
+        help="Limit number of cases to run (<=0 means all).",
+    )
     args = parser.parse_args()
 
     cases_path = Path(args.cases)
@@ -129,6 +135,8 @@ def main() -> None:
         raise FileNotFoundError(f"cases file not found: {cases_path}")
 
     cases = load_cases(cases_path)
+    if args.limit > 0:
+        cases = cases[: args.limit]
     results: List[Dict[str, Any]] = []
     for idx, case in enumerate(cases, start=1):
         case_id = str(case.get("id", f"case-{idx}"))

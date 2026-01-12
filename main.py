@@ -22,7 +22,7 @@ from review import (
     post_json,
     review_doc,
 )
-from search import DEFAULT_DB_PATH, WEIGHTS, load_db, search_db, tokenize_query
+from search import DEFAULT_DB_PATH, WEIGHTS, load_db, search_db, search_db_multi, tokenize_query
 
 app = FastAPI()
 app.add_middleware(
@@ -37,7 +37,7 @@ DOCS_BY_ID: Dict[str, Dict[str, Any]] = {}
 PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "public")
 LOGGER = logging.getLogger("uvicorn.error")
 LOGGER.setLevel(logging.INFO)
-SCORE_MIN = 5.0
+SCORE_MIN = 1.0
 SCORE_RECOMMEND = 8.0
 SCORE_MUST = 10.0
 EXTENDED_LIMIT = 10
@@ -222,8 +222,8 @@ def extract_keywords_api(
 @app.get("/stream_research")
 def stream_research(
     query: str = Query(..., min_length=1),
-    top_k: int = Query(20, ge=1, le=50),
-    max_workers: int = Query(100, ge=1, le=100),
+    top_k: int = Query(30, ge=1, le=50),
+    max_workers: int = Query(150, ge=1, le=150),
     score_threshold: float = Query(SCORE_MIN, ge=0.0, le=10.0),
     chat_url: str = Query(DEFAULT_CHAT_URL),
 ) -> StreamingResponse:
@@ -290,8 +290,16 @@ def stream_research(
         yield _format_sse("log", msg)
 
         candidate_lists = []
+        term_candidates_map = (
+            search_db_multi(DOCS, search_terms, top_k=top_k)
+            if len(search_terms) > 1
+            else {}
+        )
         for term in search_terms:
-            term_candidates = search_db(DOCS, term, top_k=top_k)
+            if term_candidates_map:
+                term_candidates = term_candidates_map.get(term, [])
+            else:
+                term_candidates = search_db(DOCS, term, top_k=top_k)
             candidate_lists.append(term_candidates)
             term_preview = [
                 {
@@ -374,7 +382,7 @@ def stream_research(
                 score = result.get("score", 0)
                 quote = result.get("quote", "")
                 error = result.get("error", "")
-                if quote and score >= score_threshold:
+                if quote and score > 0 and score >= score_threshold:
                     result["must_read"] = score >= SCORE_MUST
                     result["tier"] = "core" if score >= SCORE_RECOMMEND else "extended"
                     hits.append(result)
@@ -395,6 +403,8 @@ def stream_research(
                         msg = f"skip: {title} (error: {error})"
                     elif not quote:
                         msg = f"skip: {title} (no quote, score={score:.1f})"
+                    elif score <= 0:
+                        msg = f"skip: {title} (zero score)"
                     else:
                         msg = f"skip: {title} (score={score:.1f} < {score_threshold})"
                     _log(msg)

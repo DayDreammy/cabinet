@@ -79,14 +79,58 @@ def post_json(url: str, payload: Dict[str, Any], timeout: int = 60) -> Dict[str,
 
 def build_review_prompt(doc: Dict[str, Any], query: str) -> str:
     title = doc.get("title", "")
+    doc_question = doc.get("question", "")
     content = doc.get("content", "") or ""
+    # return (
+    #     "You are a reviewer. Only quote exact sentences from the article. "
+    #     "If the article does not answer the question, return an empty quote.\n\n"
+    #     "Scoring: first judge relevance between Question and Source Question; "
+    #     "higher relevance should yield a higher score. Then judge how well the Article "
+    #     "answers the Question.\n\n"
+    #     f"Question: {query}\n"
+    #     f"Source Question: {doc_question}\n\n"
+    #     f"Title: {title}\n"
+    #     f"Article: {content}\n\n"
+    #     'Return JSON only: {"quote": "...", "score": 0-10}'
+    # )
+#     return (
+#     "You are an expert relevance evaluator. Your task is to judge if the provided 'Reference QA' (Question + Article) can answer the user's 'User Query'.\n\n"
+    
+#     "Follow this step-by-step scoring logic:\n"
+#     "1. **Question Matching**: Compare 'User Query' with 'Source Question'.\n"
+#     "   - If they ask the same thing (semantically identical), Score = 10.\n"
+#     "2. **Content Evaluation**: If the questions are different, ignore the 'Source Question' and look at the 'Article' content.\n"
+#     "   - If the 'Article' contains information that directly answers the 'User Query', Score = 6-9 (based on completeness).\n"
+#     "   - If the 'Article' is relevant but vague, Score = 1-5.\n"
+#     "   - If irrelevant, Score = 0.\n\n"
+    
+#     "Instructions:\n"
+#     "- Only quote exact sentences from the 'Article' that support the answer.\n"
+#     "- If no relevant info is found, return an empty quote.\n\n"
+    
+#     f"User Query: {query}\n"
+#     f"Source Question: {doc_question}\n"
+#     f"Article Title: {title}\n"
+#     f"Article Content: {content}\n\n"
+    
+#     'Return JSON only: {"quote": "...", "score": <0-10>}'
+# )
     return (
-        "You are a reviewer. Only quote exact sentences from the article. "
-        "If the article does not answer the question, return an empty quote.\n\n"
-        f"Question: {query}\n\n"
+        "You are a strict judge. Analyze if the Article directly answers the User Query.\n\n"
+        "Scoring Rules (Must follow strictly):\n"
+        "- Score 10: The 'Source Question' asks exactly the same thing as 'User Query'.\n"
+        "- Score 8-9: The 'Article' EXPLICITLY discusses the specific topic (e.g., 'calm-down period') and gives specific advice.\n"
+        "- Score 4-6: The 'Article' discusses the general theme (e.g., 'Love/Argument') but NOT the specific scenario. It's vague or theoretical.\n"
+        "- Score 0-3: The content is irrelevant (e.g., talking about travel, work, or unrelated topics).\n\n"
+        "Steps:\n"
+        "1. Briefly explain your reasoning in the 'reason' field.\n"
+        "2. Extract the best sentence into 'quote'.\n"
+        "3. Assign the score.\n\n"
+        f"User Query: {query}\n"
+        f"Source Question: {doc_question}\n"
         f"Title: {title}\n"
         f"Article: {content}\n\n"
-        'Return JSON only: {"quote": "...", "score": 0-10}'
+        'Return JSON only: {"reason": "Analyzing why...", "quote": "...", "score": 0-10}'
     )
 
 
