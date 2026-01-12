@@ -1,0 +1,27 @@
+[
+  {
+    "id": "love-calm-conflict",
+    "query": "恋人在争吵后的冷静期，适合做些什么？",
+    "max_keywords": 10
+  },
+  {
+    "id": "career-switch",
+    "query": "从大厂转去创业公司，应该评估哪些关键风险？",
+    "max_keywords": 10
+  },
+  {
+    "id": "parenting-boundary",
+    "query": "如何在亲子关系中建立边界，又不伤害孩子的安全感？",
+    "max_keywords": 10
+  },
+  {
+    "id": "trust-repair",
+    "query": "关系里信任被破坏后，修复的关键步骤是什么？",
+    "max_keywords": 10
+  },
+  {
+    "id": "learning-method",
+    "query": "学习一门新技能时，如何建立有效的反馈闭环？",
+    "max_keywords": 10
+  }
+]
