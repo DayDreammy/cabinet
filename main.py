@@ -72,6 +72,13 @@ CODEX_PROXY_ENV_KEYS = [
     "all_proxy",
 ]
 
+# Claude Code (claude CLI) streaming configuration.
+CLAUDE_TIMEOUT_SEC = 1200
+CLAUDE_HEARTBEAT_SEC = 5.0
+CLAUDE_PERMISSION_MODE = "bypassPermissions"
+
+DEEP_ENGINES = {"codex", "claude"}
+
 if os.path.isdir(PUBLIC_DIR):
     app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="public")
 
@@ -300,6 +307,7 @@ class DeepResearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     context: str = Field("", min_length=0)
     token: str = Field(..., min_length=1)
+    engine: str = Field("codex", pattern="^(codex|claude)$")
 
 
 def _require_api_token(token: str) -> None:
@@ -350,6 +358,7 @@ def _iter_codex_research_events(
             event=event,
             status=status,
             message=message,
+            engine="codex",
             **extra,
         )
         _log(f"stream_log: {json.dumps(payload, ensure_ascii=False)}")
@@ -746,6 +755,7 @@ def _iter_codex_research_events(
     deep_text_report = _build_text_report(deep_hits) if deep_hits else ""
 
     done_payload = {
+        "engine": "codex",
         "query": clean_query,
         "context": clean_context,
         "elapsed_sec": elapsed_sec,
@@ -786,6 +796,722 @@ def _iter_codex_research_events(
     yield from yield_events
     yield_events.clear()
     yield ("done", done_payload)
+
+
+def _build_claude_cmd(prompt: str, model: str = "", tools: str = "Bash") -> List[str]:
+    cmd: List[str] = ["claude"]
+    if model:
+        cmd.extend(["--model", model])
+    cmd.extend(
+        [
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--permission-mode",
+            CLAUDE_PERMISSION_MODE,
+            "--tools",
+            tools,
+            "--",
+            prompt,
+        ]
+    )
+    return cmd
+
+
+def _extract_claude_text_from_message(message: Dict[str, Any]) -> str:
+    content = message.get("content", [])
+    if not isinstance(content, list):
+        return ""
+    parts: List[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text" and isinstance(block.get("text"), str):
+            parts.append(block.get("text", ""))
+    return "".join(parts).strip()
+
+
+def _extract_claude_tool_command(event: Dict[str, Any]) -> Tuple[str, str]:
+    # Returns (tool_name, command). Empty strings when not a tool_use start.
+    if not isinstance(event, dict):
+        return "", ""
+    if event.get("type") != "content_block_start":
+        return "", ""
+    block = event.get("content_block", {})
+    if not isinstance(block, dict):
+        return "", ""
+    if block.get("type") != "tool_use":
+        return "", ""
+    tool_name = str(block.get("name", "") or "")
+    tool_input = block.get("input", {})
+    if not isinstance(tool_input, dict):
+        return tool_name, ""
+    command = str(tool_input.get("command", "") or "")
+    return tool_name, command
+
+
+def _is_allowed_claude_tool(tool_name: str) -> bool:
+    # We run Claude with --tools Bash, but some environments still expose MCP tools.
+    # Enforce local-only: only allow Bash.
+    return tool_name.strip() == "Bash"
+
+
+def _iter_claude_research_events(
+    query: str,
+    context: str,
+    timeout_sec: int,
+    proxy: str,
+    unset_proxy: bool,
+    model: str = "",
+    tools: str = "Bash",
+) -> Iterator[Tuple[str, Any]]:
+    started = time.time()
+    task_id = f"claude-{int(started * 1000)}"
+
+    clean_query, query_nul_removed = _remove_nul_bytes(query)
+    clean_context, context_nul_removed = _remove_nul_bytes(context)
+    prompt = _build_codex_prompt(clean_query, clean_context)
+
+    cmd = _build_claude_cmd(prompt=prompt, model=model, tools=tools)
+
+    def stream_log(event: str, status: str, message: str = "", **extra: Any) -> None:
+        payload = _build_stream_log_payload(
+            task_id=task_id,
+            event=event,
+            status=status,
+            message=message,
+            engine="claude",
+            **extra,
+        )
+        _log(f"stream_log: {json.dumps(payload, ensure_ascii=False)}")
+        yield_events.append(("stream_log", payload))
+
+    yield_events: List[Tuple[str, Any]] = []
+
+    msg = f"claude start: permission_mode={CLAUDE_PERMISSION_MODE} tools={tools} timeout={timeout_sec}s"
+    _log(msg)
+    yield ("log", msg)
+    stream_log(
+        "start",
+        "running",
+        "claude process preparing",
+        query=clean_query,
+        context_present=bool(clean_context.strip()),
+        timeout_sec=timeout_sec,
+        proxy_enabled=bool(proxy) and not unset_proxy,
+        tools=tools,
+        permission_mode=CLAUDE_PERMISSION_MODE,
+    )
+    yield from yield_events
+    yield_events.clear()
+
+    env = _build_codex_subprocess_env(proxy=proxy, unset_proxy=unset_proxy)
+    yield ("phase_start", {"phase": "claude_boot", "query": clean_query})
+    if query_nul_removed or context_nul_removed:
+        nul_msg = (
+            "prompt sanitized: "
+            f"query_nul_removed={query_nul_removed} "
+            f"context_nul_removed={context_nul_removed}"
+        )
+        _log(nul_msg)
+        yield ("log", nul_msg)
+        stream_log(
+            "progress",
+            "sanitized",
+            nul_msg,
+            query_nul_removed=query_nul_removed,
+            context_nul_removed=context_nul_removed,
+        )
+        yield from yield_events
+        yield_events.clear()
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=REPO_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+    except Exception as exc:
+        msg = f"claude spawn failed: {exc}"
+        _log(msg)
+        yield ("log", msg)
+        stream_log("error", "failed", msg, error_type="spawn_failed")
+        yield from yield_events
+        yield_events.clear()
+        yield (
+            "done",
+            {
+                "engine": "claude",
+                "query": clean_query,
+                "context": clean_context,
+                "elapsed_sec": round(time.time() - started, 2),
+                "exit_code": -1,
+                "timed_out": False,
+                "failure_reason": "spawn_failed",
+                "final_message": "claude 子进程启动失败。",
+                "final_json": {},
+                "results": [],
+                "text_report": "",
+                "messages": [],
+                "reasoning": [],
+                "commands": [],
+                "turn_completed": False,
+                "usage": {},
+                "stream_stats": {"raw_lines": 0, "json_lines": 0, "events": 0},
+                "noise_stats": {"rollout_missing_count": 0, "rollout_missing_threads_sample": []},
+            },
+        )
+        return
+
+    if process.stdout is None:
+        msg = "failed to capture claude output"
+        _log(msg)
+        yield ("log", msg)
+        stream_log("error", "failed", msg, error_type="stdout_unavailable")
+        yield from yield_events
+        yield_events.clear()
+        yield (
+            "done",
+            {
+                "engine": "claude",
+                "query": clean_query,
+                "context": clean_context,
+                "elapsed_sec": round(time.time() - started, 2),
+                "exit_code": -1,
+                "timed_out": False,
+                "failure_reason": "stdout_unavailable",
+                "final_message": "未能捕获 claude 输出。",
+                "final_json": {},
+                "results": [],
+                "text_report": "",
+                "messages": [],
+                "reasoning": [],
+                "commands": [],
+                "turn_completed": False,
+                "usage": {},
+                "stream_stats": {"raw_lines": 0, "json_lines": 0, "events": 0},
+                "noise_stats": {"rollout_missing_count": 0, "rollout_missing_threads_sample": []},
+            },
+        )
+        return
+
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    stream_log("progress", "running", "claude process started")
+    yield from yield_events
+    yield_events.clear()
+
+    final_messages: List[str] = []
+    reasoning_messages: List[str] = []
+    command_steps: List[Dict[str, Any]] = []
+    command_map: Dict[str, Dict[str, Any]] = {}
+    timed_out = False
+    turn_completed = False
+    failure_reason = ""
+    usage: Dict[str, Any] = {}
+    should_stop = False
+    raw_line_count = 0
+    json_line_count = 0
+    event_count = 0
+    last_heartbeat_ts = started
+
+    partial_text_buffer: List[str] = []
+    last_partial_emit = started
+
+    def emit_partial_text(force: bool = False) -> None:
+        nonlocal last_partial_emit
+        now = time.time()
+        if not partial_text_buffer:
+            return
+        if not force and (now - last_partial_emit) < 0.6 and sum(len(x) for x in partial_text_buffer) < 240:
+            return
+        text = "".join(partial_text_buffer)
+        partial_text_buffer.clear()
+        last_partial_emit = now
+        yield_events.append(("codex_message", {"engine": "claude", "text": text, "partial": True}))
+        stream_log("progress", "response", _truncate_text(text, limit=200))
+
+    try:
+        while True:
+            elapsed = time.time() - started
+            if elapsed > timeout_sec:
+                timed_out = True
+                process.kill()
+                msg = f"claude timeout after {timeout_sec}s"
+                _log(msg)
+                yield ("log", msg)
+                stream_log(
+                    "error",
+                    "timeout",
+                    msg,
+                    timeout_sec=timeout_sec,
+                    elapsed_sec=round(elapsed, 2),
+                )
+                yield from yield_events
+                yield_events.clear()
+                failure_reason = "service_timeout"
+                break
+
+            ready = selector.select(timeout=0.5)
+            if not ready:
+                if process.poll() is not None:
+                    break
+                now = time.time()
+                if now - last_heartbeat_ts >= CLAUDE_HEARTBEAT_SEC:
+                    heartbeat = (
+                        "claude heartbeat: "
+                        f"elapsed={round(now - started, 1)}s "
+                        f"events={event_count} raw={raw_line_count}"
+                    )
+                    _log(heartbeat)
+                    yield ("log", heartbeat)
+                    stream_log(
+                        "progress",
+                        "heartbeat",
+                        heartbeat,
+                        elapsed_sec=round(now - started, 1),
+                        events=event_count,
+                        raw_lines=raw_line_count,
+                    )
+                    yield from yield_events
+                    yield_events.clear()
+                    last_heartbeat_ts = now
+                continue
+
+            for key, _ in ready:
+                line = key.fileobj.readline()
+                if line == "":
+                    continue
+                text_line = line.rstrip("\r\n")
+                if not text_line:
+                    continue
+                raw_line_count += 1
+                parsed = _parse_codex_json_line(text_line)
+                if parsed is None:
+                    msg = f"claude raw[{raw_line_count}]: {_truncate_text(text_line, limit=1500)}"
+                    _log(msg)
+                    yield ("log", msg)
+                    continue
+
+                json_line_count += 1
+                event_count += 1
+
+                # Keep raw event for debugging, but reuse existing event name to keep SSE contract stable.
+                yield ("codex_event", {"engine": "claude", **parsed})
+                stream_log(
+                    "progress",
+                    "event",
+                    "claude event",
+                    event_type=str(parsed.get("type", "")),
+                    event_index=event_count,
+                )
+                yield from yield_events
+                yield_events.clear()
+
+                typ = str(parsed.get("type", ""))
+                if typ == "stream_event":
+                    event = parsed.get("event", {})
+                    if isinstance(event, dict):
+                        # Tool calls (Bash) show up as tool_use blocks in content_block_start.
+                        tool_name, command = _extract_claude_tool_command(event)
+                        if tool_name or command:
+                            tool_use_id = str(event.get("content_block", {}).get("id", "") or "")
+                            rec_id = tool_use_id or f"tool_{event_count}"
+                            record = command_map.get(rec_id)
+                            if not record:
+                                record = {
+                                    "id": rec_id,
+                                    "type": "tool_use",
+                                    "tool": tool_name,
+                                    "command": command,
+                                    "status": "in_progress",
+                                    "exit_code": None,
+                                    "output": "",
+                                }
+                                command_map[rec_id] = record
+                                command_steps.append(record)
+                            record["tool"] = tool_name or record.get("tool", "")
+                            record["command"] = command or record.get("command", "")
+                            record["status"] = "in_progress"
+
+                            if record.get("tool") and not _is_allowed_claude_tool(str(record.get("tool", ""))):
+                                failure_reason = "forbidden_tool"
+                                msg = f"forbidden tool detected; aborting: {record.get('tool', '')}"
+                                _log(msg)
+                                yield ("log", msg)
+                                stream_log(
+                                    "error",
+                                    "failed",
+                                    "forbidden tool detected; aborting",
+                                    item_id=record.get("id", ""),
+                                    tool=record.get("tool", ""),
+                                )
+                                yield from yield_events
+                                yield_events.clear()
+                                process.kill()
+                                should_stop = True
+                                break
+
+                            if _is_forbidden_codex_command(record.get("command", "")):
+                                failure_reason = "forbidden_command"
+                                msg = f"forbidden command detected; aborting: {record.get('command', '')}"
+                                _log(msg)
+                                yield ("log", msg)
+                                stream_log(
+                                    "error",
+                                    "failed",
+                                    "forbidden command detected; aborting",
+                                    item_id=record.get("id", ""),
+                                    command=record.get("command", ""),
+                                )
+                                yield from yield_events
+                                yield_events.clear()
+                                process.kill()
+                                should_stop = True
+                                break
+
+                            yield (
+                                "codex_command",
+                                {
+                                    "engine": "claude",
+                                    "id": record.get("id", ""),
+                                    "command": record.get("command", ""),
+                                    "status": record.get("status", ""),
+                                    "exit_code": record.get("exit_code"),
+                                    "output": record.get("output", ""),
+                                    "tool": record.get("tool", ""),
+                                },
+                            )
+                            stream_log(
+                                "progress",
+                                "call",
+                                _truncate_text(record.get("command", ""), limit=300),
+                                item_id=record.get("id", ""),
+                                tool=record.get("tool", ""),
+                            )
+                            yield from yield_events
+                            yield_events.clear()
+                            continue
+
+                        # Partial assistant output (text deltas).
+                        if event.get("type") == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                                text = str(delta.get("text", ""))
+                                if text:
+                                    partial_text_buffer.append(text)
+                                    emit_partial_text(force=False)
+                                    yield from yield_events
+                                    yield_events.clear()
+                            continue
+
+                        # Message stop marks the end of a single message, not the whole run.
+                        if event.get("type") == "message_stop":
+                            stream_log("progress", "event", "claude message_stop")
+                            yield from yield_events
+                            yield_events.clear()
+                            continue
+
+                    continue
+
+                if typ == "assistant":
+                    message = parsed.get("message", {})
+                    if isinstance(message, dict):
+                        # Claude may emit tool_use-only messages (stop_reason=tool_use).
+                        content = message.get("content", [])
+                        if isinstance(content, list):
+                            for block in content:
+                                if not isinstance(block, dict):
+                                    continue
+                                if block.get("type") != "tool_use":
+                                    continue
+                                tool_use_id = str(block.get("id", "") or "")
+                                tool_name = str(block.get("name", "") or "")
+                                tool_input = block.get("input", {}) if isinstance(block.get("input", {}), dict) else {}
+                                command = str(tool_input.get("command", "") or "")
+
+                                rec_id = tool_use_id or f"tool_{event_count}"
+                                record = command_map.get(rec_id)
+                                if not record:
+                                    record = {
+                                        "id": rec_id,
+                                        "type": "tool_use",
+                                        "tool": tool_name,
+                                        "command": command,
+                                        "status": "in_progress",
+                                        "exit_code": None,
+                                        "output": "",
+                                    }
+                                    command_map[rec_id] = record
+                                    command_steps.append(record)
+                                record["tool"] = tool_name or record.get("tool", "")
+                                record["command"] = command or record.get("command", "")
+                                record["status"] = "in_progress"
+
+                                if record.get("tool") and not _is_allowed_claude_tool(str(record.get("tool", ""))):
+                                    failure_reason = "forbidden_tool"
+                                    msg = f"forbidden tool detected; aborting: {record.get('tool', '')}"
+                                    _log(msg)
+                                    yield ("log", msg)
+                                    stream_log(
+                                        "error",
+                                        "failed",
+                                        "forbidden tool detected; aborting",
+                                        item_id=record.get("id", ""),
+                                        tool=record.get("tool", ""),
+                                    )
+                                    yield from yield_events
+                                    yield_events.clear()
+                                    process.kill()
+                                    should_stop = True
+                                    break
+
+                                if command and _is_forbidden_codex_command(command):
+                                    failure_reason = "forbidden_command"
+                                    msg = f"forbidden command detected; aborting: {command}"
+                                    _log(msg)
+                                    yield ("log", msg)
+                                    stream_log(
+                                        "error",
+                                        "failed",
+                                        "forbidden command detected; aborting",
+                                        item_id=record.get("id", ""),
+                                        command=command,
+                                    )
+                                    yield from yield_events
+                                    yield_events.clear()
+                                    process.kill()
+                                    should_stop = True
+                                    break
+
+                                yield (
+                                    "codex_command",
+                                    {
+                                        "engine": "claude",
+                                        "id": record.get("id", ""),
+                                        "command": record.get("command", ""),
+                                        "status": record.get("status", ""),
+                                        "exit_code": record.get("exit_code"),
+                                        "output": record.get("output", ""),
+                                        "tool": record.get("tool", ""),
+                                    },
+                                )
+                                stream_log(
+                                    "progress",
+                                    "call",
+                                    _truncate_text(record.get("command", ""), limit=300),
+                                    item_id=record.get("id", ""),
+                                    tool=record.get("tool", ""),
+                                )
+                                yield from yield_events
+                                yield_events.clear()
+                            if should_stop:
+                                break
+
+                        text = _extract_claude_text_from_message(message)
+                        if text:
+                            final_messages.append(text)
+                            yield ("codex_message", {"engine": "claude", "text": text, "partial": False})
+                            stream_log("progress", "response", _truncate_text(text, limit=300))
+                            yield from yield_events
+                            yield_events.clear()
+                    continue
+
+                if typ == "user":
+                    # Tool results arrive as a user message with tool_use_id.
+                    message = parsed.get("message", {})
+                    if isinstance(message, dict):
+                        content = message.get("content", [])
+                        if isinstance(content, list):
+                            for block in content:
+                                if not isinstance(block, dict):
+                                    continue
+                                if block.get("type") != "tool_result":
+                                    continue
+                                tool_use_id = str(block.get("tool_use_id", "") or "")
+                                output = str(block.get("content", "") or "")
+                                if not tool_use_id:
+                                    continue
+                                record = command_map.get(tool_use_id)
+                                if record is None:
+                                    continue
+                                record["status"] = "completed"
+                                record["output"] = _truncate_text(output, limit=1200)
+                                yield (
+                                    "codex_command",
+                                    {
+                                        "engine": "claude",
+                                        "id": record.get("id", ""),
+                                        "command": record.get("command", ""),
+                                        "status": record.get("status", ""),
+                                        "exit_code": record.get("exit_code"),
+                                        "output": record.get("output", ""),
+                                        "tool": record.get("tool", ""),
+                                    },
+                                )
+                                stream_log(
+                                    "progress",
+                                    "call",
+                                    _truncate_text(record.get("command", ""), limit=300),
+                                    item_id=record.get("id", ""),
+                                    tool=record.get("tool", ""),
+                                    command_status="completed",
+                                )
+                                yield from yield_events
+                                yield_events.clear()
+                    continue
+
+                if typ == "result":
+                    # Final aggregated result; also includes usage.
+                    usage = parsed.get("usage", {}) if isinstance(parsed.get("usage", {}), dict) else usage
+                    if parsed.get("is_error"):
+                        failure_reason = "claude_result_error"
+                    turn_completed = True
+                    stream_log("progress", "turn_completed", "claude result received", is_error=bool(parsed.get("is_error")))
+                    yield from yield_events
+                    yield_events.clear()
+                    should_stop = True
+                    continue
+
+            if should_stop:
+                break
+    finally:
+        selector.close()
+        if process.poll() is None:
+            if timed_out or failure_reason in {"service_timeout", "forbidden_command", "forbidden_tool"}:
+                process.kill()
+            else:
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+
+    return_code = process.wait()
+    elapsed_sec = round(time.time() - started, 2)
+    emit_partial_text(force=True)
+    yield from yield_events
+    yield_events.clear()
+
+    final_message = "\n\n".join(final_messages).strip()
+    if not final_message:
+        if failure_reason:
+            final_message = f"claude 执行失败，原因：{failure_reason}"
+        elif timed_out:
+            final_message = "claude 执行超时。"
+        else:
+            final_message = "claude 未返回最终文本。"
+
+    final_json = _extract_final_json_block(final_message)
+    deep_hits = _build_hits_from_codex_final_json(final_json) if final_json else []
+    deep_text_report = _build_text_report(deep_hits) if deep_hits else ""
+
+    done_payload = {
+        "engine": "claude",
+        "query": clean_query,
+        "context": clean_context,
+        "elapsed_sec": elapsed_sec,
+        "exit_code": return_code,
+        "timed_out": timed_out,
+        "failure_reason": failure_reason,
+        "final_message": final_message,
+        "final_json": final_json,
+        "results": deep_hits,
+        "text_report": deep_text_report,
+        "messages": final_messages,
+        "reasoning": reasoning_messages,
+        "commands": command_steps,
+        "turn_completed": turn_completed,
+        "usage": usage,
+        "stream_stats": {
+            "raw_lines": raw_line_count,
+            "json_lines": json_line_count,
+            "events": event_count,
+        },
+        "noise_stats": {"rollout_missing_count": 0, "rollout_missing_threads_sample": []},
+    }
+    complete_status = "success" if return_code == 0 and not timed_out else "failed"
+    stream_log(
+        "complete",
+        complete_status,
+        "claude run finished",
+        exit_code=return_code,
+        timed_out=timed_out,
+        failure_reason=failure_reason,
+        elapsed_sec=elapsed_sec,
+        stream_stats=done_payload.get("stream_stats", {}),
+    )
+    yield from yield_events
+    yield_events.clear()
+    yield ("done", done_payload)
+
+
+def _iter_deep_research_events(
+    engine: str,
+    query: str,
+    context: str,
+    timeout_sec: int,
+    sandbox_mode: str,
+    privilege_mode: str,
+    proxy: str,
+    unset_proxy: bool,
+) -> Iterator[Tuple[str, Any]]:
+    if engine not in DEEP_ENGINES:
+        yield (
+            "done",
+            {
+                "engine": engine,
+                "query": query,
+                "context": context,
+                "elapsed_sec": 0.0,
+                "exit_code": -1,
+                "timed_out": False,
+                "failure_reason": "invalid_engine",
+                "final_message": f"invalid engine: {engine}",
+                "final_json": {},
+                "results": [],
+                "text_report": "",
+                "messages": [],
+                "reasoning": [],
+                "commands": [],
+                "turn_completed": False,
+                "usage": {},
+                "stream_stats": {"raw_lines": 0, "json_lines": 0, "events": 0},
+                "noise_stats": {"rollout_missing_count": 0, "rollout_missing_threads_sample": []},
+            },
+        )
+        return
+
+    if engine == "claude":
+        yield from _iter_claude_research_events(
+            query=query,
+            context=context,
+            timeout_sec=timeout_sec,
+            proxy=proxy,
+            unset_proxy=unset_proxy,
+        )
+        return
+
+    # Default: codex.
+    yield from _iter_codex_research_events(
+        query=query,
+        context=context,
+        timeout_sec=timeout_sec,
+        sandbox_mode=sandbox_mode,
+        privilege_mode=privilege_mode,
+        proxy=proxy,
+        unset_proxy=unset_proxy,
+    )
 
 
 def _extract_codex_raw_fatal_reason(line: str) -> str:
@@ -1197,11 +1923,13 @@ def stream_codex_research(
     sandbox_mode: str = Query("workspace-write", pattern="^(read-only|workspace-write|danger-full-access)$"),
     # Default to `danger` to avoid Codex LandlockRestrict preventing local command execution.
     privilege_mode: str = Query("danger", pattern="^(default|full-auto|danger)$"),
+    engine: str = Query("codex", pattern="^(codex|claude)$"),
     proxy: str = Query("", min_length=0),
     unset_proxy: bool = Query(False),
 ) -> StreamingResponse:
     def event_generator() -> Iterable[str]:
-        for event, data in _iter_codex_research_events(
+        for event, data in _iter_deep_research_events(
+            engine=engine,
             query=query,
             context=context,
             timeout_sec=timeout_sec,
@@ -1219,7 +1947,8 @@ def stream_codex_research(
 def api_deep_research(req: DeepResearchRequest) -> Dict[str, Any]:
     _require_api_token(req.token)
     done_payload: Dict[str, Any] = {}
-    for event, data in _iter_codex_research_events(
+    for event, data in _iter_deep_research_events(
+        engine=req.engine,
         query=req.query,
         context=req.context,
         timeout_sec=CODEX_TIMEOUT_SEC,
@@ -1234,6 +1963,7 @@ def api_deep_research(req: DeepResearchRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="missing done payload")
     # API contract: text_report is the primary answer.
     return {
+        "engine": done_payload.get("engine", req.engine),
         "query": done_payload.get("query", ""),
         "text_report": done_payload.get("text_report", ""),
         "results": done_payload.get("results", []),

@@ -1,11 +1,11 @@
 ---
 name: cabinet-codex-research
-description: Drive Cabinet deep research with transparent Codex streaming. Use when the user wants `codex ...` style deep retrieval (iterative planning, multi-round search, and evidence-first output) instead of quick keyword search, and when process transparency via SSE event streaming is required.
+description: Drive Cabinet deep research with transparent streaming (Codex or Claude Code). Use when the user wants `codex ...` / `claude ...` style deep retrieval (iterative planning, multi-round search, and evidence-first output) instead of quick keyword search, and when process transparency via SSE event streaming is required.
 ---
 
-# Cabinet Codex Research
+# Cabinet Deep Research (Codex / Claude)
 
-Use this skill to execute deep retrieval tasks through a separate Codex process while keeping each operation visible in a live stream.
+Use this skill to execute deep retrieval tasks through a separate agent CLI process while keeping each operation visible in a live stream.
 
 ## Workflow
 
@@ -15,10 +15,12 @@ Use this skill to execute deep retrieval tasks through a separate Codex process 
 
 2. Select mode:
 - Use quick mode (`/stream_research`) for fast quote extraction from local corpus.
-- Use deep mode (`/stream_codex_research`) for iterative investigation (`codex exec --json`).
+- Use deep mode (`/stream_codex_research`) for iterative investigation:
+  - `engine=codex`: `codex exec --json`
+  - `engine=claude`: Claude Code `--output-format stream-json` + `--permission-mode bypassPermissions`
 
 3. Execute deep mode:
-- Call `/stream_codex_research` with `query`, `context`, and sensible `timeout_sec`.
+- Call `/stream_codex_research` with `query`, `context`, sensible `timeout_sec`, and optional `engine=codex|claude`.
 - Consume SSE events and surface them in real time:
   - `phase_start`
   - `log`

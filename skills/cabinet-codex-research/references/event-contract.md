@@ -2,6 +2,9 @@
 
 Endpoint: `/stream_codex_research`
 
+Query params:
+- `engine`: `codex|claude` (default `codex`)
+
 ## Events
 
 - `phase_start`

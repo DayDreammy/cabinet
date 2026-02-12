@@ -109,26 +109,29 @@ codexx "你的问题"
 ```
 
 Deep endpoint useful params:
+- `engine`: `codex|claude` (default `codex`).
 - `timeout_sec`: per-request timeout (default 1200s).
 - `sandbox_mode`: `read-only|workspace-write|danger-full-access` (used when `privilege_mode=default`).
 - `privilege_mode`: `default|full-auto|danger`.
   - recommended: `danger` (default) to avoid Codex `LandlockRestrict` blocking local command execution.
 
 CLI script params (`scripts/codex_stream_cli.py` / `scripts/codexr`):
+- `--engine codex|claude`
 - `--timeout-sec`
 - `--proxy` / `--unset-proxy`
 - `--sandbox-mode`
 - `--privilege-mode`
+- `--claude-tools` (when `--engine claude`, default `Bash`)
 - `--retries` (retry timeout-like failures)
 - `--print-final`
 
 NUL-byte safety:
-- Deep endpoint sanitizes `query/context` with `text.replace("\\0", "")` before composing the Codex prompt.
+- Deep endpoint sanitizes `query/context` with `text.replace("\\0", "")` before composing the agent prompt.
 
 ## API For Other Callers
 Synchronous API (returns final `text_report` + `results`):
 - `POST /api/deep_research`
-- Request JSON fields: `query`, `context`, `token`
+- Request JSON fields: `query`, `context`, `token`, `engine` (optional; `codex|claude`)
 - Auth: compares `token` with env `CABINET_API_TOKEN` (if env is unset, token check is skipped with a warning)
 
 ## Local Retrieval CLI

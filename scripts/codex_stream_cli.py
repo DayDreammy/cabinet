@@ -176,7 +176,7 @@ def build_env(args: argparse.Namespace) -> Dict[str, str]:
     return env
 
 
-def build_cmd(args: argparse.Namespace, prompt: str) -> List[str]:
+def build_codex_cmd(args: argparse.Namespace, prompt: str) -> List[str]:
     cmd: List[str] = ["codex", "-C", args.cwd]
     if args.model:
         cmd.extend(["--model", args.model])
@@ -190,10 +190,33 @@ def build_cmd(args: argparse.Namespace, prompt: str) -> List[str]:
     return cmd
 
 
-def run_once(args: argparse.Namespace, task_id: str, query: str, context: str) -> Dict[str, Any]:
+def build_claude_cmd(args: argparse.Namespace, prompt: str) -> List[str]:
+    # Claude Code requires --verbose when streaming JSON.
+    cmd: List[str] = ["claude"]
+    if args.model:
+        cmd.extend(["--model", args.model])
+    cmd.extend(
+        [
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--permission-mode",
+            "bypassPermissions",
+            "--tools",
+            args.claude_tools,
+            "--",
+            prompt,
+        ]
+    )
+    return cmd
+
+
+def run_once_codex(args: argparse.Namespace, task_id: str, query: str, context: str) -> Dict[str, Any]:
     started = time.time()
     prompt = build_prompt(query, context)
-    cmd = build_cmd(args, prompt)
+    cmd = build_codex_cmd(args, prompt)
     env = build_env(args)
 
     emit(
@@ -502,6 +525,7 @@ def run_once(args: argparse.Namespace, task_id: str, query: str, context: str) -
         emit(task_id, "progress", "final_json", "parsed FINAL_JSON", final_json=final_json)
 
     return {
+        "engine": "codex",
         "exit_code": return_code,
         "timed_out": timed_out,
         "failure_reason": failure_reason,
@@ -524,15 +548,470 @@ def run_once(args: argparse.Namespace, task_id: str, query: str, context: str) -
     }
 
 
+def _extract_claude_text_from_message(message: Dict[str, Any]) -> str:
+    content = message.get("content", [])
+    if not isinstance(content, list):
+        return ""
+    parts: List[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text" and isinstance(block.get("text"), str):
+            parts.append(block.get("text", ""))
+    return "".join(parts).strip()
+
+
+def _extract_claude_tool_command(event: Dict[str, Any]) -> Tuple[str, str, str]:
+    # Returns (tool_use_id, tool_name, command).
+    if not isinstance(event, dict):
+        return "", "", ""
+    if event.get("type") != "content_block_start":
+        return "", "", ""
+    block = event.get("content_block", {})
+    if not isinstance(block, dict):
+        return "", "", ""
+    if block.get("type") != "tool_use":
+        return "", "", ""
+    tool_use_id = str(block.get("id", "") or "")
+    tool_name = str(block.get("name", "") or "")
+    tool_input = block.get("input", {})
+    if not isinstance(tool_input, dict):
+        return tool_use_id, tool_name, ""
+    command = str(tool_input.get("command", "") or "")
+    return tool_use_id, tool_name, command
+
+
+def _is_allowed_claude_tool(tool_name: str) -> bool:
+    return tool_name.strip() == "Bash"
+
+
+def run_once_claude(args: argparse.Namespace, task_id: str, query: str, context: str) -> Dict[str, Any]:
+    started = time.time()
+    prompt = build_prompt(query, context)
+    cmd = build_claude_cmd(args, prompt)
+    env = build_env(args)
+
+    emit(
+        task_id,
+        "start",
+        "running",
+        "claude process preparing",
+        query=query,
+        context_present=bool(context.strip()),
+        proxy_enabled=bool(args.proxy) and not args.unset_proxy,
+        proxy_url=args.proxy if (args.proxy and not args.unset_proxy) else "",
+        permission_mode="bypassPermissions",
+        tools=args.claude_tools,
+        timeout_sec=args.timeout_sec,
+        cwd=args.cwd,
+        cmd=cmd,
+    )
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=args.cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+    except Exception as exc:
+        emit(task_id, "error", "failed", f"spawn failed: {exc}", error_type="spawn_failed")
+        return {
+            "engine": "claude",
+            "exit_code": -1,
+            "timed_out": False,
+            "failure_reason": "spawn_failed",
+            "final_message": "",
+            "messages": [],
+            "reasoning": [],
+            "commands": [],
+            "stream_stats": {"events": 0, "json_lines": 0, "raw_lines": 0},
+            "noise_stats": {},
+        }
+
+    if process.stdout is None:
+        emit(
+            task_id,
+            "error",
+            "failed",
+            "failed to capture claude output",
+            error_type="stdout_unavailable",
+        )
+        return {
+            "engine": "claude",
+            "exit_code": -1,
+            "timed_out": False,
+            "failure_reason": "stdout_unavailable",
+            "final_message": "",
+            "messages": [],
+            "reasoning": [],
+            "commands": [],
+            "stream_stats": {"events": 0, "json_lines": 0, "raw_lines": 0},
+            "noise_stats": {},
+        }
+
+    emit(task_id, "progress", "running", "claude process started")
+
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+
+    final_messages: List[str] = []
+    command_steps: List[Dict[str, Any]] = []
+    command_map: Dict[str, Dict[str, Any]] = {}
+    usage: Dict[str, Any] = {}
+
+    timed_out = False
+    failure_reason = ""
+    raw_line_count = 0
+    json_line_count = 0
+    event_count = 0
+    last_heartbeat_ts = started
+    should_stop = False
+
+    partial_buf: List[str] = []
+    last_partial_emit = started
+
+    def maybe_emit_partial(force: bool = False) -> None:
+        nonlocal last_partial_emit
+        if not partial_buf:
+            return
+        now = time.time()
+        size = sum(len(x) for x in partial_buf)
+        if not force and (now - last_partial_emit) < 0.6 and size < 240:
+            return
+        text = "".join(partial_buf)
+        partial_buf.clear()
+        last_partial_emit = now
+        emit(task_id, "progress", "response", text, partial=True)
+
+    try:
+        while True:
+            elapsed = time.time() - started
+            if elapsed > args.timeout_sec:
+                timed_out = True
+                process.kill()
+                failure_reason = "service_timeout"
+                emit(
+                    task_id,
+                    "error",
+                    "timeout",
+                    f"claude timeout after {args.timeout_sec}s",
+                    elapsed_sec=round(elapsed, 2),
+                    timeout_sec=args.timeout_sec,
+                )
+                break
+
+            ready = selector.select(timeout=0.5)
+            if not ready:
+                if process.poll() is not None:
+                    break
+                now = time.time()
+                if now - last_heartbeat_ts >= HEARTBEAT_SEC:
+                    emit(
+                        task_id,
+                        "progress",
+                        "heartbeat",
+                        "claude heartbeat",
+                        elapsed_sec=round(now - started, 1),
+                        events=event_count,
+                        raw_lines=raw_line_count,
+                    )
+                    last_heartbeat_ts = now
+                continue
+
+            for key, _ in ready:
+                line = key.fileobj.readline()
+                if line == "":
+                    continue
+                text_line = line.rstrip("\r\n")
+                if not text_line:
+                    continue
+
+                raw_line_count += 1
+                parsed = parse_json_line(text_line)
+                if parsed is None:
+                    emit(task_id, "progress", "raw", text_line, raw_index=raw_line_count)
+                    continue
+
+                json_line_count += 1
+                event_count += 1
+                emit(
+                    task_id,
+                    "progress",
+                    "event",
+                    "claude event",
+                    event_type=str(parsed.get("type", "")),
+                    event_index=event_count,
+                )
+
+                typ = str(parsed.get("type", ""))
+                if typ == "stream_event":
+                    event = parsed.get("event", {})
+                    if isinstance(event, dict):
+                        tool_use_id, tool_name, command = _extract_claude_tool_command(event)
+                        if tool_use_id or tool_name or command:
+                            rec_id = tool_use_id or f"tool_{event_count}"
+                            record = command_map.get(rec_id)
+                            if not record:
+                                record = {
+                                    "id": rec_id,
+                                    "tool": tool_name,
+                                    "command": command,
+                                    "status": "in_progress",
+                                    "exit_code": None,
+                                    "output": "",
+                                }
+                                command_map[rec_id] = record
+                                command_steps.append(record)
+                            record["tool"] = tool_name or record.get("tool", "")
+                            record["command"] = command or record.get("command", "")
+
+                            if record.get("tool") and not _is_allowed_claude_tool(str(record.get("tool", ""))):
+                                failure_reason = "forbidden_tool"
+                                emit(
+                                    task_id,
+                                    "error",
+                                    "failed",
+                                    "forbidden tool detected; aborting",
+                                    item_id=rec_id,
+                                    tool=record.get("tool", ""),
+                                )
+                                process.kill()
+                                should_stop = True
+                                continue
+
+                            if is_forbidden_command(record.get("command", "")):
+                                failure_reason = "forbidden_command"
+                                emit(
+                                    task_id,
+                                    "error",
+                                    "failed",
+                                    "forbidden command detected; aborting",
+                                    item_id=rec_id,
+                                    command=record.get("command", ""),
+                                )
+                                process.kill()
+                                should_stop = True
+                                continue
+
+                            # The full Bash command is often only present in the later `assistant` tool_use message.
+                            if record.get("command"):
+                                emit(
+                                    task_id,
+                                    "progress",
+                                    "call",
+                                    record.get("command", ""),
+                                    item_id=rec_id,
+                                    tool=record.get("tool", ""),
+                                )
+                            continue
+
+                        if event.get("type") == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                                text = str(delta.get("text", ""))
+                                if text:
+                                    partial_buf.append(text)
+                                    maybe_emit_partial(force=False)
+                            continue
+
+                        if event.get("type") == "message_stop":
+                            # End of a message, not necessarily end of the overall run.
+                            emit(task_id, "progress", "event", "claude message_stop")
+                            continue
+
+                if typ == "assistant":
+                    message = parsed.get("message", {})
+                    if isinstance(message, dict):
+                        content = message.get("content", [])
+                        if isinstance(content, list):
+                            for block in content:
+                                if not isinstance(block, dict):
+                                    continue
+                                if block.get("type") != "tool_use":
+                                    continue
+                                tool_use_id = str(block.get("id", "") or "")
+                                tool_name = str(block.get("name", "") or "")
+                                tool_input = block.get("input", {}) if isinstance(block.get("input", {}), dict) else {}
+                                cmd_text = str(tool_input.get("command", "") or "")
+
+                                rec_id = tool_use_id or f"tool_{event_count}"
+                                record = command_map.get(rec_id)
+                                if not record:
+                                    record = {
+                                        "id": rec_id,
+                                        "tool": tool_name,
+                                        "command": cmd_text,
+                                        "status": "in_progress",
+                                        "exit_code": None,
+                                        "output": "",
+                                    }
+                                    command_map[rec_id] = record
+                                    command_steps.append(record)
+                                record["tool"] = tool_name or record.get("tool", "")
+                                record["command"] = cmd_text or record.get("command", "")
+
+                                if record.get("tool") and not _is_allowed_claude_tool(str(record.get("tool", ""))):
+                                    failure_reason = "forbidden_tool"
+                                    emit(
+                                        task_id,
+                                        "error",
+                                        "failed",
+                                        "forbidden tool detected; aborting",
+                                        item_id=rec_id,
+                                        tool=record.get("tool", ""),
+                                    )
+                                    process.kill()
+                                    should_stop = True
+                                    break
+
+                                if cmd_text and is_forbidden_command(cmd_text):
+                                    failure_reason = "forbidden_command"
+                                    emit(
+                                        task_id,
+                                        "error",
+                                        "failed",
+                                        "forbidden command detected; aborting",
+                                        item_id=rec_id,
+                                        command=cmd_text,
+                                    )
+                                    process.kill()
+                                    should_stop = True
+                                    break
+
+                                if record.get("command"):
+                                    emit(
+                                        task_id,
+                                        "progress",
+                                        "call",
+                                        record.get("command", ""),
+                                        item_id=rec_id,
+                                        tool=record.get("tool", ""),
+                                    )
+                            if should_stop:
+                                continue
+
+                        text = _extract_claude_text_from_message(message)
+                        if text:
+                            final_messages.append(text)
+                            emit(task_id, "progress", "response", text, partial=False)
+                    continue
+
+                if typ == "user":
+                    message = parsed.get("message", {})
+                    if isinstance(message, dict):
+                        content = message.get("content", [])
+                        if isinstance(content, list):
+                            for block in content:
+                                if not isinstance(block, dict):
+                                    continue
+                                if block.get("type") != "tool_result":
+                                    continue
+                                tool_use_id = str(block.get("tool_use_id", "") or "")
+                                output = str(block.get("content", "") or "")
+                                if not tool_use_id:
+                                    continue
+                                record = command_map.get(tool_use_id)
+                                if record is None:
+                                    continue
+                                record["status"] = "completed"
+                                record["output"] = output
+                                emit(
+                                    task_id,
+                                    "progress",
+                                    "call",
+                                    record.get("command", ""),
+                                    item_id=tool_use_id,
+                                    tool=record.get("tool", ""),
+                                    command_status="completed",
+                                )
+                    continue
+
+                if typ == "result":
+                    if isinstance(parsed.get("usage", {}), dict):
+                        usage = parsed.get("usage", {})
+                    if parsed.get("is_error"):
+                        failure_reason = "claude_result_error"
+                    emit(
+                        task_id,
+                        "progress",
+                        "turn_completed",
+                        "claude result received",
+                        is_error=bool(parsed.get("is_error")),
+                    )
+                    should_stop = True
+                    continue
+
+            if should_stop:
+                break
+    finally:
+        selector.close()
+        if process.poll() is None:
+            if timed_out or failure_reason in {"service_timeout", "forbidden_command", "forbidden_tool"}:
+                process.kill()
+            else:
+                # We received a terminal event (e.g. `result`) and can let the CLI exit cleanly.
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+
+    return_code = process.wait()
+    maybe_emit_partial(force=True)
+    elapsed_sec = round(time.time() - started, 2)
+    final_message = "\n\n".join(final_messages).strip()
+    if not final_message:
+        if failure_reason:
+            final_message = f"claude run failed: {failure_reason}"
+        elif timed_out:
+            final_message = "claude run timed out"
+        else:
+            final_message = "claude returned no final message"
+
+    if not failure_reason and (timed_out or return_code != 0):
+        failure_reason = "non_zero_exit"
+
+    final_json = extract_final_json_block(final_message)
+    if final_json:
+        emit(task_id, "progress", "final_json", "parsed FINAL_JSON", final_json=final_json)
+
+    return {
+        "engine": "claude",
+        "exit_code": return_code,
+        "timed_out": timed_out,
+        "failure_reason": failure_reason,
+        "elapsed_sec": elapsed_sec,
+        "final_message": final_message,
+        "final_json": final_json,
+        "messages": final_messages,
+        "reasoning": [],
+        "commands": command_steps,
+        "usage": usage,
+        "stream_stats": {"events": event_count, "json_lines": json_line_count, "raw_lines": raw_line_count},
+        "noise_stats": {},
+    }
+
+
 def run_with_retries(args: argparse.Namespace, query: str, context: str) -> int:
-    task_base = args.task_id or f"codex-cli-{int(time.time() * 1000)}"
+    task_base = args.task_id or f"deep-cli-{int(time.time() * 1000)}"
     attempts = max(1, args.retries + 1)
     last_result: Dict[str, Any] = {}
 
     for attempt in range(1, attempts + 1):
         task_id = f"{task_base}-a{attempt}"
         emit(task_id, "progress", "attempt", f"starting attempt {attempt}/{attempts}")
-        result = run_once(args, task_id, query, context)
+        if args.engine == "claude":
+            result = run_once_claude(args, task_id, query, context)
+        else:
+            result = run_once_codex(args, task_id, query, context)
         last_result = result
         complete_status = (
             "success"
@@ -543,7 +1022,8 @@ def run_with_retries(args: argparse.Namespace, query: str, context: str) -> int:
             task_id,
             "complete",
             complete_status,
-            "codex run finished",
+            "deep run finished",
+            engine=result.get("engine", args.engine),
             exit_code=result.get("exit_code"),
             timed_out=result.get("timed_out"),
             failure_reason=result.get("failure_reason"),
@@ -577,12 +1057,18 @@ def run_with_retries(args: argparse.Namespace, query: str, context: str) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run deep Codex research from CLI and stream structured JSON logs."
+        description="Run deep research from CLI (codex or claude) and stream structured JSON logs."
     )
     parser.add_argument("query", help="User query.")
     parser.add_argument("--context", default="", help="Extra context.")
     parser.add_argument("--cwd", default=os.getcwd(), help="Working directory for Codex.")
     parser.add_argument("--timeout-sec", type=int, default=1200, help="Per-attempt timeout seconds.")
+    parser.add_argument(
+        "--engine",
+        default="codex",
+        choices=["codex", "claude"],
+        help="Deep engine to run: codex or claude.",
+    )
     parser.add_argument(
         "--proxy",
         default="",
@@ -605,6 +1091,11 @@ def parse_args() -> argparse.Namespace:
         default="danger",
         choices=["default", "full-auto", "danger"],
         help="Privilege preset. danger bypasses sandbox to allow local command execution.",
+    )
+    parser.add_argument(
+        "--claude-tools",
+        default="Bash",
+        help="Claude --tools value when engine=claude (default: Bash).",
     )
     parser.add_argument("--model", default="", help="Optional model name passed to codex --model.")
     parser.add_argument("--retries", type=int, default=0, help="Retry count for timeout-like failures.")
