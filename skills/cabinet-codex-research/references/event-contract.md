@@ -3,7 +3,7 @@
 Endpoint: `/stream_codex_research`
 
 Query params:
-- `engine`: `codex|claude` (default `codex`)
+- `engine`: `codex|claude` (default `claude`)
 
 ## Events
 

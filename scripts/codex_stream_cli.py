@@ -1065,7 +1065,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-sec", type=int, default=1200, help="Per-attempt timeout seconds.")
     parser.add_argument(
         "--engine",
-        default="codex",
+        default="claude",
         choices=["codex", "claude"],
         help="Deep engine to run: codex or claude.",
     )

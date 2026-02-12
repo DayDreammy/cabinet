@@ -109,7 +109,7 @@ codexx "你的问题"
 ```
 
 Deep endpoint useful params:
-- `engine`: `codex|claude` (default `codex`).
+- `engine`: `codex|claude` (default `claude`).
 - `timeout_sec`: per-request timeout (default 1200s).
 - `sandbox_mode`: `read-only|workspace-write|danger-full-access` (used when `privilege_mode=default`).
 - `privilege_mode`: `default|full-auto|danger`.

@@ -307,7 +307,7 @@ class DeepResearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     context: str = Field("", min_length=0)
     token: str = Field(..., min_length=1)
-    engine: str = Field("codex", pattern="^(codex|claude)$")
+    engine: str = Field("claude", pattern="^(codex|claude)$")
 
 
 def _require_api_token(token: str) -> None:
@@ -1923,7 +1923,7 @@ def stream_codex_research(
     sandbox_mode: str = Query("workspace-write", pattern="^(read-only|workspace-write|danger-full-access)$"),
     # Default to `danger` to avoid Codex LandlockRestrict preventing local command execution.
     privilege_mode: str = Query("danger", pattern="^(default|full-auto|danger)$"),
-    engine: str = Query("codex", pattern="^(codex|claude)$"),
+    engine: str = Query("claude", pattern="^(codex|claude)$"),
     proxy: str = Query("", min_length=0),
     unset_proxy: bool = Query(False),
 ) -> StreamingResponse:
