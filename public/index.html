@@ -38,7 +38,7 @@
 
     .controls {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr 220px auto;
       gap: 12px;
       align-items: stretch;
       margin-bottom: 16px;
@@ -59,13 +59,29 @@
     }
 
     input[type="text"],
-    textarea {
+    textarea,
+    select {
       width: 100%;
       padding: 10px 12px;
       border-radius: 8px;
       border: 1px solid #cfd6e2;
       font-size: 14px;
+      box-sizing: border-box;
+      background: #fff;
+      color: #1f2430;
+    }
+
+    textarea {
       resize: vertical;
+    }
+
+    .controls-context {
+      margin-top: -4px;
+      margin-bottom: 16px;
+    }
+
+    .hidden {
+      display: none !important;
     }
 
     .btn {
@@ -371,9 +387,20 @@
           <label for="query">Query</label>
           <textarea id="query" rows="3">love</textarea>
         </div>
+        <div>
+          <label for="mode">Mode</label>
+          <select id="mode">
+            <option value="quick">Quick Search (cabinet)</option>
+            <option value="deep">Deep Research (codex ...)</option>
+          </select>
+        </div>
         <div class="actions">
           <button id="start" class="btn">Start</button>
         </div>
+      </div>
+      <div id="context-wrapper" class="controls-context hidden">
+        <label for="context">Context (for deep research)</label>
+        <textarea id="context" rows="4" placeholder="补充目标、限制条件、已知背景、关注角度等。"></textarea>
       </div>
       <div class="row">
         <div>
@@ -385,7 +412,7 @@
           <div id="cards" class="cards"></div>
         </div>
       </div>
-      <details class="debug-toggle">
+      <details id="candidates-debug" class="debug-toggle">
         <summary>Candidates (Debug)</summary>
         <div class="candidates">
           <div id="candidates"></div>
@@ -439,11 +466,16 @@
 
   <script>
     const queryInput = document.getElementById("query");
-    const endpoint = "/stream_research";
+    const modeInput = document.getElementById("mode");
+    const contextWrapper = document.getElementById("context-wrapper");
+    const contextInput = document.getElementById("context");
+    const quickEndpoint = "/stream_research";
+    const deepEndpoint = "/stream_codex_research";
     const startBtn = document.getElementById("start");
     const logEl = document.getElementById("log");
     const cardsEl = document.getElementById("cards");
     const candidatesEl = document.getElementById("candidates");
+    const candidatesDebugEl = document.getElementById("candidates-debug");
     const textReportEl = document.getElementById("text-report");
     const copyReportBtn = document.getElementById("copy-report");
     const modal = document.getElementById("modal");
@@ -465,6 +497,10 @@
     let baseUrl = "";
     let resultsCache = [];
 
+    function currentMode() {
+      return modeInput.value === "deep" ? "deep" : "quick";
+    }
+
     function addLog(message, className) {
       const line = document.createElement("div");
       line.textContent = message;
@@ -473,6 +509,33 @@
       }
       logEl.appendChild(line);
       logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function summarizeCodexEvent(data) {
+      if (!data || typeof data !== "object") {
+        return "";
+      }
+      const type = data.type || "";
+      if (type === "item.started" || type === "item.completed") {
+        const item = data.item || {};
+        const itemType = item.type || "unknown";
+        if (
+          itemType === "reasoning" ||
+          itemType === "agent_message" ||
+          itemType === "command_execution"
+        ) {
+          return "";
+        }
+        return `${type} ${itemType}`;
+      }
+      if (
+        type === "thread.started" ||
+        type === "turn.started" ||
+        type === "turn.completed"
+      ) {
+        return "";
+      }
+      return `event: ${type || "unknown"}`;
     }
 
     function renderResults(items) {
@@ -539,6 +602,30 @@
         });
     }
 
+    function renderDeepSummary(payload) {
+      cardsEl.textContent = "";
+      const card = document.createElement("div");
+      card.className = "card";
+      const title = document.createElement("h3");
+      title.textContent = "Codex Deep Research";
+      const body = document.createElement("p");
+      body.textContent = payload.final_message || "(empty)";
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const commandCount = Array.isArray(payload.commands)
+        ? payload.commands.length
+        : 0;
+      const rolloutNoise = payload?.noise_stats?.rollout_missing_count ?? 0;
+      const failure = payload.failure_reason
+        ? ` | failure: ${payload.failure_reason}`
+        : "";
+      meta.textContent = `exit: ${payload.exit_code} | elapsed: ${payload.elapsed_sec}s | commands: ${commandCount} | rollout_noise: ${rolloutNoise}${failure}`;
+      card.appendChild(title);
+      card.appendChild(body);
+      card.appendChild(meta);
+      cardsEl.appendChild(card);
+    }
+
     function resetUI() {
       logEl.textContent = "";
       cardsEl.textContent = "";
@@ -553,10 +640,15 @@
     }
 
     function resolveBaseUrl() {
-      try {
-        baseUrl = new URL(endpoint, window.location.origin).origin;
-      } catch (err) {
-        baseUrl = window.location.origin || "";
+      baseUrl = window.location.origin || "";
+    }
+
+    function syncModeUI() {
+      const isDeep = currentMode() === "deep";
+      contextWrapper.classList.toggle("hidden", !isDeep);
+      candidatesDebugEl.classList.toggle("hidden", isDeep);
+      if (isDeep) {
+        candidatesEl.textContent = "";
       }
     }
 
@@ -717,6 +809,13 @@
       }
     }
 
+    function closeSource() {
+      if (source) {
+        source.close();
+        source = null;
+      }
+    }
+
     startBtn.addEventListener("click", () => {
       const query = queryInput.value.trim();
       if (!query) {
@@ -724,12 +823,25 @@
         return;
       }
 
+      closeSource();
       resetUI();
       resolveBaseUrl();
       setRunning(true);
 
-      const url = `${endpoint}?query=${encodeURIComponent(query)}`;
+      const mode = currentMode();
+      const params = new URLSearchParams({ query });
+      let endpoint = quickEndpoint;
+      if (mode === "deep") {
+        endpoint = deepEndpoint;
+        const context = contextInput.value.trim();
+        if (context) {
+          params.set("context", context);
+        }
+      }
+
+      const url = `${endpoint}?${params.toString()}`;
       source = new EventSource(url);
+      addLog(`mode: ${mode}`);
 
       source.addEventListener("log", (event) => {
         addLog(event.data);
@@ -737,82 +849,180 @@
       source.addEventListener("log_skip", (event) => {
         addLog(event.data, "skip");
       });
-      source.addEventListener("candidates", (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          renderCandidates(data);
-        } catch (err) {
-          addLog("invalid candidates payload");
-        }
-      });
-      source.addEventListener("term_search", (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.term) {
-            const topPreview = (data.top || [])
-              .map(
-                (item, idx) =>
-                  `${idx + 1}.${item.title}[${item.search_score}]`
-              )
-              .join(", ");
-            addLog(
-              `term search: ${data.term} -> ${data.count} candidates | top: ${topPreview}`
-            );
+
+      if (mode === "quick") {
+        source.addEventListener("candidates", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            renderCandidates(data);
+          } catch (err) {
+            addLog("invalid candidates payload");
           }
-        } catch (err) {
-          addLog("invalid term_search payload");
-        }
-      });
-      source.addEventListener("merge_summary", (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          addLog(
-            `merge summary: terms=${data.terms} total=${data.total} unique=${data.unique}`
-          );
-        } catch (err) {
-          addLog("invalid merge_summary payload");
-        }
-      });
-      source.addEventListener("card_found", (event) => {
-        addLog("hit: card_found", "hit");
-        try {
-          const data = JSON.parse(event.data);
-          resultsCache.push(data);
-          renderResults(resultsCache);
-        } catch (err) {
-          addLog("invalid card payload");
-        }
-      });
+        });
+        source.addEventListener("term_search", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.term) {
+              const topPreview = (data.top || [])
+                .map(
+                  (item, idx) =>
+                    `${idx + 1}.${item.title}[${item.search_score}]`
+                )
+                .join(", ");
+              addLog(
+                `term search: ${data.term} -> ${data.count} candidates | top: ${topPreview}`
+              );
+            }
+          } catch (err) {
+            addLog("invalid term_search payload");
+          }
+        });
+        source.addEventListener("merge_summary", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            addLog(
+              `merge summary: terms=${data.terms} total=${data.total} unique=${data.unique}`
+            );
+          } catch (err) {
+            addLog("invalid merge_summary payload");
+          }
+        });
+        source.addEventListener("card_found", (event) => {
+          addLog("hit: card_found", "hit");
+          try {
+            const data = JSON.parse(event.data);
+            resultsCache.push(data);
+            renderResults(resultsCache);
+          } catch (err) {
+            addLog("invalid card payload");
+          }
+        });
+      } else {
+        source.addEventListener("phase_start", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            addLog(`phase: ${data.phase || "unknown"}`);
+          } catch (err) {
+            addLog("invalid phase_start payload");
+          }
+        });
+        source.addEventListener("codex_reasoning", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.text) {
+              addLog(`[reasoning] ${data.text}`, "skip");
+            }
+          } catch (err) {
+            addLog("invalid codex_reasoning payload");
+          }
+        });
+        source.addEventListener("codex_message", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.text) {
+              addLog(`[assistant] ${data.text}`, "hit");
+            }
+          } catch (err) {
+            addLog("invalid codex_message payload");
+          }
+        });
+        source.addEventListener("codex_command", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const status = data.status || "unknown";
+            const cmd = data.command || "(no command)";
+            addLog(`[command:${status}] ${cmd}`);
+            if (data.output && status === "completed") {
+              addLog(`[output] ${data.output}`, "skip");
+            }
+          } catch (err) {
+            addLog("invalid codex_command payload");
+          }
+        });
+        source.addEventListener("stream_log", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const ev = data.event || "progress";
+            const status = data.status || "unknown";
+            const msg = data.message || "";
+            const line = `[stream:${ev}/${status}] ${msg}`.trim();
+            const cls = ev === "error" || status === "failed" ? "skip" : "";
+            addLog(line, cls);
+          } catch (err) {
+            addLog("invalid stream_log payload");
+          }
+        });
+        source.addEventListener("codex_event", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const summary = summarizeCodexEvent(data);
+            if (summary) {
+              addLog(`[event] ${summary}`, "skip");
+            }
+          } catch (err) {
+            addLog("invalid codex_event payload");
+          }
+        });
+      }
+
       source.addEventListener("done", (event) => {
         addLog("done", "hit");
         try {
           const data = JSON.parse(event.data);
-          if (Array.isArray(data.results)) {
-            resultsCache = data.results;
-            renderResults(resultsCache);
-          }
-          if (data.text_report) {
-            setTextReport(data.text_report);
+          if (mode === "quick") {
+            if (Array.isArray(data.results)) {
+              resultsCache = data.results;
+              renderResults(resultsCache);
+            }
+            if (data.text_report) {
+              setTextReport(data.text_report);
+            }
+          } else {
+            if (Array.isArray(data.results) && data.results.length) {
+              resultsCache = data.results;
+              renderResults(resultsCache);
+            } else {
+              renderDeepSummary(data);
+            }
+            if (data.text_report) {
+              setTextReport(data.text_report);
+            } else if (data.final_message) {
+              setTextReport(data.final_message);
+            }
+            const commandCount = Array.isArray(data.commands)
+              ? data.commands.length
+              : 0;
+            addLog(
+              `codex done: exit=${data.exit_code} elapsed=${data.elapsed_sec}s commands=${commandCount}`,
+              data.exit_code === 0 ? "hit" : "skip"
+            );
+            if (data.stream_stats) {
+              addLog(
+                `stream stats: events=${data.stream_stats.events} json=${data.stream_stats.json_lines} raw=${data.stream_stats.raw_lines}`
+              );
+            }
+            if (data.noise_stats?.rollout_missing_count) {
+              addLog(
+                `noise stats: rollout_missing=${data.noise_stats.rollout_missing_count} (suppressed)`
+              );
+            }
+            if (data.failure_reason) {
+              addLog(`failure reason: ${data.failure_reason}`, "skip");
+            }
           }
         } catch (err) {
           addLog("invalid done payload");
         }
-        if (source) {
-          source.close();
-          source = null;
-        }
+        closeSource();
         setRunning(false);
       });
+
       source.addEventListener("error", () => {
         addLog("connection error");
-        if (source) {
-          source.close();
-          source = null;
-        }
+        closeSource();
         setRunning(false);
       });
     });
-
 
     copyReportBtn.addEventListener("click", async () => {
       try {
@@ -827,6 +1037,9 @@
         addLog("copy failed");
       }
     });
+
+    modeInput.addEventListener("change", syncModeUI);
+    syncModeUI();
 
     modalClose.addEventListener("click", closeModal);
     modal.addEventListener("click", (event) => {

@@ -37,6 +37,69 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8002
 http://127.0.0.1:8002/
 ```
 
+## 两种检索模式
+
+- `Quick Search (cabinet)`：本地加权检索 + 并发审阅，适合快速找证据。
+- `Deep Research (codex ...)`：启动独立 `codex exec --json` 进程做迭代深度检索，并把思考/命令/消息实时流式输出。
+  - 深度模式只允许基于本地 `data/ps_2026-01-07.json` 做检索与引用；如果 Codex 尝试任何网络/下载命令会直接中止。
+
+## CLI 直连（推荐先用）
+
+先不经过前端，直接在终端跑 deep research：
+
+```bash
+cd /home/yy/project/ai_arch_lesson/cabinet_repo
+./scripts/codexr "和女朋友异地两年，怎么减少关系风险" --context "希望给可执行步骤+原句证据"
+```
+
+输出是 JSON Lines，核心字段是：
+- `event`: `start|progress|complete|error`
+- `id`: 任务 id
+- `status`: `running|heartbeat|event|thought|call|response|turn_completed|success|failed|timeout`
+
+可选：做成短命令（接近 `codex xxxx`）
+
+```bash
+alias codexx='/home/yy/project/ai_arch_lesson/cabinet_repo/scripts/codexr'
+codexx "请给我一份异地恋冷静期行动清单"
+```
+
+如果本机访问模型需要代理（例如 7890），仅对本次命令生效：
+
+```bash
+./scripts/codexr "你的问题" --proxy http://127.0.0.1:7890
+```
+
+对应接口：
+
+- `GET /stream_research`
+- `GET /stream_codex_research`
+
+深度模式示例：
+
+```bash
+curl -N "http://127.0.0.1:8002/stream_codex_research?query=恋人在争吵后的冷静期适合做些什么&context=希望有可执行步骤"
+```
+
+深度模式可观测性（Streaming JSON）：
+- 事件 `stream_log`：结构化 JSON（字段含 `event` / `id` / `status`），用于机器解析与监控。
+- 事件 `codex_reasoning` / `codex_command` / `codex_message`：默认实时显示 thought / call / response。
+- 事件 `codex_event`：保留 Codex 原始事件，便于调试。
+- 自动心跳日志：无新输出时会周期性推送 heartbeat，避免“假死”感。
+
+深度模式额外参数：
+- `privilege_mode=default|full-auto|danger`
+  - `default`：`--sandbox ... --ask-for-approval never`
+  - `full-auto`：`--full-auto`
+  - `danger`：`--dangerously-bypass-approvals-and-sandbox`
+  - 推荐/默认：`danger`（避免 Codex 的 `LandlockRestrict` 导致无法执行本地检索命令）
+  - 如果你的环境在 sandbox 下能正常执行本地命令，可考虑用 `full-auto` 代替 `danger`
+- CLI 脚本也支持同名参数：`--privilege-mode`
+- 超时重试：`--timeout-sec 300 --retries 1`
+
+提示词安全：
+- 服务端会在启动 Codex 前自动移除 `\0` 字符（NUL byte），并记录清洗计数，避免 CLI 因 `nul byte found` 崩溃。
+
 ## 致谢
 当前数据来自 sooon.ai，源自知乎用户 https://www.zhihu.com/people/kvxjr369f 的开放版权与无私奉献，特此致谢。
 

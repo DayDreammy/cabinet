@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.pid
 
 .env
 .env.*
@@ -20,6 +21,8 @@ ENV/
 *.log
 *.sqlite3
 *.db
+
+logs/
 
 dist/
 build/
